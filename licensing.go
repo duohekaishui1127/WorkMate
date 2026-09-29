@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"workmate/internal/entitlement"
 )
 
 const trialDuration = 24 * time.Hour
@@ -45,6 +46,8 @@ type LicenseManager struct {
 	trialLastSeen     time.Time
 	clockRollback     bool
 	lastPersist       time.Time
+	trialLength       time.Duration
+	trialPolicyIssued time.Time
 	expiryNoticeShown bool
 }
 
@@ -52,6 +55,9 @@ func newLicenseManager(dataDir string) *LicenseManager {
 	lm := &LicenseManager{dataDir: dataDir, deviceID: deviceFingerprint()}
 	lm.loadLicense()
 	lm.loadOrCreateTrial()
+	if b, err := os.ReadFile(filepath.Join(dataDir, "trial-policy.dat")); err == nil {
+		_ = lm.applyTrialPolicy(string(b), false)
+	}
 	return lm
 }
 
@@ -60,14 +66,14 @@ func (lm *LicenseManager) DeviceCode() string {
 }
 func (lm *LicenseManager) IsPro() bool { return lm.pro }
 func (lm *LicenseManager) TrialActive(now time.Time) bool {
-	return !lm.pro && !lm.clockRollback && now.Before(lm.trialStart.Add(trialDuration))
+	return !lm.pro && !lm.clockRollback && now.Before(lm.trialStart.Add(lm.effectiveTrialDuration()))
 }
 func (lm *LicenseManager) HasProAccess(now time.Time) bool { return lm.pro || lm.TrialActive(now) }
 func (lm *LicenseManager) TrialRemaining(now time.Time) time.Duration {
 	if lm.pro || lm.clockRollback {
 		return 0
 	}
-	d := lm.trialStart.Add(trialDuration).Sub(now)
+	d := lm.trialStart.Add(lm.effectiveTrialDuration()).Sub(now)
 	if d < 0 {
 		return 0
 	}
@@ -206,7 +212,11 @@ func (lm *LicenseManager) Activate(code string) error {
 	return nil
 }
 func (lm *LicenseManager) verifyActivationCode(code string) error {
-	return verifyActivationCode(code, lm.deviceID, releasePublicKeyB64)
+	err := verifyActivationCode(code, lm.deviceID, releasePublicKeyB64)
+	if err != nil && onlineLicensePublicKeyB64 != "" {
+		return verifyActivationCode(code, lm.deviceID, onlineLicensePublicKeyB64)
+	}
+	return err
 }
 
 func verifyActivationCode(code, deviceID, publicKey string) error {
@@ -252,4 +262,32 @@ func deviceFingerprint() string {
 	}
 	sum := sha256.Sum256([]byte("WorkMate|" + strings.TrimSpace(raw)))
 	return hex.EncodeToString(sum[:])
+}
+
+func (lm *LicenseManager) effectiveTrialDuration() time.Duration {
+	if lm.trialLength > 0 {
+		return lm.trialLength
+	}
+	return trialDuration
+}
+func (lm *LicenseManager) ApplyTrialPolicy(token string) error {
+	return lm.applyTrialPolicy(token, true)
+}
+func (lm *LicenseManager) applyTrialPolicy(token string, persist bool) error {
+	p, err := entitlement.VerifyTrial(token, onlineLicensePublicKeyB64)
+	if err != nil {
+		return err
+	}
+	issued, _ := time.Parse(time.RFC3339, p.IssuedAt)
+	if issued.Before(lm.trialPolicyIssued) {
+		return nil
+	}
+	if persist {
+		if err = os.WriteFile(filepath.Join(lm.dataDir, "trial-policy.dat"), []byte(token), 0600); err != nil {
+			return err
+		}
+	}
+	lm.trialLength = time.Duration(p.Hours) * time.Hour
+	lm.trialPolicyIssued = issued
+	return nil
 }

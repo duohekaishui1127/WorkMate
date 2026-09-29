@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>WorkMate Pro · 付款订单</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/buy.js" defer></script>
+  </head>
+  <body>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <main class="buy-card">
+      <span class="brand">W / WorkMate</span>
+      <h1>开通 WorkMate Pro</h1>
+      <p class="muted">一次买断，绑定当前电脑，永久使用。</p>
+      <p id="loading">正在读取订单…</p>
+      <div id="order" hidden>
+        <div class="order-top">
+          <span id="order-status" class="badge"></span
+          ><strong id="amount" class="price"></strong>
+        </div>
+        <dl>
+          <dt>订单号</dt>
+          <dd id="order-id"></dd>
+          <dt>绑定设备</dt>
+          <dd id="device-id" class="mono"></dd>
+        </dl>
+        <p id="review-note" class="warning" hidden></p>
+        <section id="payment">
+          <h2>1. 扫码付款</h2>
+          <p>请按上方订单金额付款，保存付款凭证。此收款码由开发者提供。</p>
+          <img id="qr" class="qr" alt="开发者收款码" hidden />
+          <p id="payment-unavailable" hidden>
+            购买入口暂未开放，请联系开发者处理已有订单。
+          </p>
+          <p id="developer-contact" class="hint"></p>
+        </section>
+        <section id="submission">
+          <h2>2. 提交付款信息</h2>
+          <p class="hint">
+            开发者会定期人工核实到账，提交凭证后不会立即开通。请勿重复付款。
+          </p>
+          <form id="submit-form">
+            <label
+              >你的联系方式<input
+                id="customer-contact"
+                maxlength="240"
+                placeholder="微信号或邮箱，方便开发者联系你"
+                required /></label
+            ><label
+              >付款方式<select id="payment-method" required>
+                <option value="wechat">微信</option>
+                <option value="alipay">支付宝</option>
+                <option value="other">其他</option>
+              </select></label
+            ><label
+              >付款交易单号<input
+                id="payment-reference"
+                maxlength="160"
+                placeholder="付款账单中的交易单号" /></label
+            ><label
+              >付款截图（PNG / JPG，最多 4 MB）<input
+                id="evidence"
+                type="file"
+                accept="image/png,image/jpeg"
+            /></label>
+            <p id="evidence-status" class="hint"></p>
+            <label
+              >补充说明<textarea
+                id="customer-note"
+                rows="3"
+                maxlength="1000"
+                placeholder="如付款人昵称、付款时间等"
+              ></textarea></label
+            ><button type="submit">我已付款，提交核实</button>
+          </form>
+        </section>
+        <section id="approved" hidden>
+          <h2>Pro 已开通</h2>
+          <p>
+            保持 WorkMate
+            运行并联网，软件会自动领取授权。也可以回到购买窗口点击“检查订单 /
+            领取授权”。
+          </p>
+          <details>
+            <summary>手动激活备用方式</summary>
+            <label
+              >绑定这台电脑的激活码<textarea
+                id="license-code"
+                rows="5"
+                readonly
+              ></textarea></label
+            ><button id="copy-license" class="secondary" type="button">
+              复制激活码
+            </button>
+          </details>
+        </section>
+        <button id="refresh" class="secondary" type="button">
+          刷新订单状态
+        </button>
+        <p class="hint">
+          此订单只关联设备码和你提交的付款信息，工资、加班与请假数据保存在你的电脑。
+        </p>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,5 +1,6 @@
 {
   "enabled": false,
   "price": "¥19.90",
-  "contact": ""
+  "contact": "",
+  "server_url": "http://127.0.0.1:8090"
 }

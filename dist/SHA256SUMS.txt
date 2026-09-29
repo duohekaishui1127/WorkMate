@@ -1,1 +1,4 @@
-8a1c867c3067d11f21a495b41ac3788596482e67d27c2be326387941584fc567  /mnt/data/WorkMate-Windows-V8-Commerce-Source/dist/WorkMate.exe
+9e229b5a51f0882505b954b5e81d44410910734638eb861167690be736c2e290  WorkMate.exe
+36fdf44cf92a3ba9ec17d689068077066566b0627ba82f117c378a6c20e86661  WorkMateAdmin.exe
+ae2a20a628ebb90f3506cb05ddf96714b7fadc571123dbbf61bfbedf56479c35  WorkMate-Client-Windows-x64.zip
+2358460d33060899a5128dc74915805b48ace841b7cf6e22cee9defafcf9a3ae  WorkMate-Admin-Windows-x64-private.zip

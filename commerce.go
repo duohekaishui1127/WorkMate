@@ -12,9 +12,10 @@ import (
 )
 
 type CommerceConfig struct {
-	Enabled bool   `json:"enabled"`
-	Price   string `json:"price"`
-	Contact string `json:"contact"`
+	Enabled   bool   `json:"enabled"`
+	Price     string `json:"price"`
+	Contact   string `json:"contact"`
+	ServerURL string `json:"server_url,omitempty"`
 }
 
 // A closed purchase entry still permits entering an existing activation code.
@@ -26,6 +27,7 @@ func loadCommerceConfig(dir string) (CommerceConfig, error) {
 	}
 	cfg.Price = strings.TrimSpace(cfg.Price)
 	cfg.Contact = strings.TrimSpace(cfg.Contact)
+	cfg.ServerURL = strings.TrimSpace(cfg.ServerURL)
 	return cfg, nil
 }
 

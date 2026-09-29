@@ -78,6 +78,7 @@ func main() {
 	}
 	app.store = st
 	app.license = newLicenseManager(st.DataDir)
+	initOnlinePurchase()
 	// Older test builds may have left the Run value pointing at a previous
 	// WorkMate.exe. Repair it on every startup when auto-start is enabled so
 	// the next Windows login cannot launch an old copy alongside this one.
@@ -241,6 +242,8 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_TIMER:
 		if wParam == timerMain {
 			now := time.Now()
+			drainOnlinePurchase()
+			syncOnlinePurchase(now, false)
 			app.store.Tick(now)
 			app.license.Tick(now)
 			if app.license.ConsumeExpiryNotice(now) {

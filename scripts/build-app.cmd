@@ -36,7 +36,15 @@ set CGO_ENABLED=0
 go vet ./...
 if errorlevel 1 exit /b 1
 
-go build -trimpath -buildvcs=false -ldflags="-H windowsgui -s -w" -o dist\WorkMate.exe .
+set "ADMIN_PUBLIC_KEY="
+set "ADMIN_KEY_FILE=admin-data\license-public.key"
+if defined WORKMATE_ADMIN_PUBLIC_KEY_FILE set "ADMIN_KEY_FILE=%WORKMATE_ADMIN_PUBLIC_KEY_FILE%"
+if exist "!ADMIN_KEY_FILE!" (
+  set /p ADMIN_PUBLIC_KEY=<"!ADMIN_KEY_FILE!"
+  echo [INFO] Including admin server public key.
+)
+
+go build -trimpath -buildvcs=false -ldflags="-H windowsgui -s -w -X main.onlineLicensePublicKeyB64=!ADMIN_PUBLIC_KEY!" -o dist\WorkMate.exe .
 if errorlevel 1 exit /b 1
 
 copy /y assets\commerce.json dist\commerce.json >nul
