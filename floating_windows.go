@@ -8,11 +8,16 @@ import (
 	"unsafe"
 )
 
+const timerFloatingDock = 2
+
+var floatingDockState floatingDock
+
 func floatingSize() (int, int) { return floatingDimensions(app.store.Settings) }
 func toggleFloating(forceShow bool) {
 	if app.floating != 0 {
-		if forceShow {
-			show(app.floating, SW_SHOW)
+		visible, _, _ := pIsWindowVisible.Call(uintptr(app.floating))
+		if forceShow || visible == 0 || floatingDockState.collapsed {
+			restoreFloating()
 			return
 		}
 		pDestroyWindow.Call(uintptr(app.floating))
@@ -20,21 +25,90 @@ func toggleFloating(forceShow bool) {
 	}
 	w, h := floatingSize()
 	x, y := app.store.Settings.FloatingLeft, app.store.Settings.FloatingTop
-	var wa RECT
-	pSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
-	if app.store.Settings.FloatingMode == "Taskbar" || x < 0 || y < 0 {
-		x = int(wa.Right) - w - 18
-		y = int(wa.Bottom) - h - 12
+	wa := floatingWorkArea(0)
+	// Negative coordinates are valid on monitors to the left or above the primary.
+	if app.store.Settings.FloatingMode == "Taskbar" || (x == -1 && y == -1) {
+		x, y = wa.Right-w-18, wa.Bottom-h-12
 	}
-	style := uintptr(WS_POPUP)
-	ex := uintptr(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED)
-	r, _, _ := pCreateWindowEx.Call(ex, uintptr(unsafe.Pointer(u16(floatClass))), uintptr(unsafe.Pointer(u16("WorkMate 挂件"))), style, uintptr(x), uintptr(y), uintptr(w), uintptr(h), uintptr(app.main), 0, uintptr(app.hInst), 0)
+	ex := uintptr(WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE)
+	if app.store.Settings.FloatingTopmost {
+		ex |= WS_EX_TOPMOST
+	}
+	floatingDockState = floatingDock{}
+	r, _, _ := pCreateWindowEx.Call(ex, uintptr(unsafe.Pointer(u16(floatClass))), uintptr(unsafe.Pointer(u16("WorkMate 挂件"))), WS_POPUP, uintptr(x), uintptr(y), uintptr(w), uintptr(h), uintptr(app.main), 0, uintptr(app.hInst), 0)
 	app.floating = HWND(r)
 	if app.floating == 0 {
 		return
 	}
 	applyFloatingSettings()
-	show(app.floating, SW_SHOW)
+	show(app.floating, SW_SHOWNOACTIVATE)
+}
+
+func floatingWorkArea(hwnd HWND) desktopRect {
+	if hwnd != 0 {
+		monitor, _, _ := pMonitorFromWindow.Call(uintptr(hwnd), MONITOR_DEFAULTTONEAREST)
+		info := MONITORINFO{CbSize: uint32(unsafe.Sizeof(MONITORINFO{}))}
+		if ok, _, _ := pGetMonitorInfo.Call(monitor, uintptr(unsafe.Pointer(&info))); ok != 0 {
+			return desktopRect{int(info.Work.Left), int(info.Work.Top), int(info.Work.Right), int(info.Work.Bottom)}
+		}
+	}
+	var wa RECT
+	pSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
+	return desktopRect{int(wa.Left), int(wa.Top), int(wa.Right), int(wa.Bottom)}
+}
+
+func floatingWindowRect() desktopRect {
+	var wr RECT
+	pGetWindowRect.Call(uintptr(app.floating), uintptr(unsafe.Pointer(&wr)))
+	return desktopRect{int(wr.Left), int(wr.Top), int(wr.Right), int(wr.Bottom)}
+}
+
+func positionFloating(r desktopRect) {
+	pSetWindowPos.Call(uintptr(app.floating), 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.width()), uintptr(r.height()), SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOOWNERZORDER)
+	invalidate(app.floating)
+}
+
+func restoreFloating() {
+	floatingDockState.collapsed = false
+	floatingDockState.outsideSince = time.Time{}
+	positionFloating(floatingDockState.normal)
+	show(app.floating, SW_SHOWNOACTIVATE)
+}
+
+func hideFloating() {
+	if app.floating != 0 {
+		floatingDockState.outsideSince = time.Time{}
+		show(app.floating, SW_HIDE)
+	}
+}
+
+func updateFloatingDock(now time.Time, x, y int) {
+	if app.floating == 0 || !app.store.Settings.FloatingAutoHide {
+		return
+	}
+	// Explicit hide (including the panic key) must never be reversed by hovering.
+	if visible, _, _ := pIsWindowVisible.Call(uintptr(app.floating)); visible == 0 {
+		floatingDockState.outsideSince = time.Time{}
+		return
+	}
+	if floatingDockState.update(now, x, y) {
+		positionFloating(floatingDockState.visibleRect())
+	}
+}
+
+func pollFloatingDock() {
+	var pt POINT
+	if ok, _, _ := pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); ok != 0 {
+		updateFloatingDock(time.Now(), int(pt.X), int(pt.Y))
+	}
+}
+
+func saveFloatingPosition() {
+	if app.store.Settings.FloatingMode != "Taskbar" {
+		app.store.Settings.FloatingLeft = floatingDockState.normal.Left
+		app.store.Settings.FloatingTop = floatingDockState.normal.Top
+		_ = app.store.SaveAll()
+	}
 }
 
 func floatWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
@@ -42,38 +116,62 @@ func floatWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_PAINT:
 		paintFloating(hwnd)
 		return 0
+	case WM_TIMER:
+		if wParam == timerFloatingDock {
+			pollFloatingDock()
+		}
+		return 0
+	case WM_MOUSEMOVE:
+		pollFloatingDock()
+		return 0
+	case WM_ENTERSIZEMOVE:
+		floatingDockState.dragging = true
+		floatingDockState.outsideSince = time.Time{}
+		return 0
+	case WM_EXITSIZEMOVE:
+		floatingDockState.dragging = false
+		floatingDockState.place(floatingWindowRect(), floatingWorkArea(hwnd), app.store.Settings.FloatingAutoHide)
+		positionFloating(floatingDockState.normal)
+		saveFloatingPosition()
+		return 0
+	case WM_DISPLAYCHANGE, WM_SETTINGCHANGE:
+		applyFloatingSettings()
+		return 0
 	case WM_LBUTTONUP:
+		if floatingDockState.collapsed {
+			restoreFloating()
+			return 0
+		}
 		var r RECT
 		pGetClientRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&r)))
-		x := signed16(loword(lParam))
-		y := signed16(hiword(lParam))
+		x, y := signed16(loword(lParam)), signed16(hiword(lParam))
 		if x > r.Right-38 && y < 36 {
-			show(hwnd, SW_HIDE)
+			hideFloating()
 		}
 		return 0
 	case WM_NCHITTEST:
+		if floatingDockState.collapsed {
+			return HTCLIENT
+		}
 		var wr RECT
 		pGetWindowRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&wr)))
-		sx := signed16(loword(lParam))
-		sy := signed16(hiword(lParam))
+		sx, sy := signed16(loword(lParam)), signed16(hiword(lParam))
 		if sx >= wr.Right-42 && sy <= wr.Top+38 {
 			return HTCLIENT
 		}
 		return HTCAPTION
-	case WM_RBUTTONUP:
-		show(hwnd, SW_HIDE)
+	case WM_NCRBUTTONDOWN:
+		return 0 // Avoid the default caption context menu.
+	case WM_RBUTTONUP, WM_NCRBUTTONUP:
+		panicHide()
 		return 0
 	case WM_CLOSE:
-		show(hwnd, SW_HIDE)
+		hideFloating()
 		return 0
 	case WM_DESTROY:
-		var wr RECT
-		pGetWindowRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&wr)))
-		if app.store.Settings.FloatingMode != "Taskbar" {
-			app.store.Settings.FloatingLeft = int(wr.Left)
-			app.store.Settings.FloatingTop = int(wr.Top)
-		}
-		_ = app.store.SaveAll()
+		pKillTimer.Call(uintptr(hwnd), timerFloatingDock)
+		saveFloatingPosition()
+		floatingDockState = floatingDock{}
 		app.floating = 0
 		return 0
 	}
@@ -100,20 +198,39 @@ func applyFloatingSettings() {
 		return
 	}
 	w, h := floatingSize()
-	var wr RECT
-	pGetWindowRect.Call(uintptr(app.floating), uintptr(unsafe.Pointer(&wr)))
-	x, y := int(wr.Left), int(wr.Top)
-	if app.store.Settings.FloatingMode == "Taskbar" {
-		var wa RECT
-		pSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
-		x, y = int(wa.Right)-w-18, int(wa.Bottom)-h-12
+	r := floatingDockState.normal
+	if r.width() <= 0 || r.height() <= 0 {
+		r = floatingWindowRect()
 	}
-	move(app.floating, x, y, w, h)
+	// Keep right/bottom anchoring when dimensions change while docked.
+	x, y := r.Left, r.Top
+	if floatingDockState.edge == dockRight {
+		x = r.Right - w
+	}
+	if floatingDockState.edge == dockBottom {
+		y = r.Bottom - h
+	}
+	wa := floatingWorkArea(app.floating)
+	if app.store.Settings.FloatingMode == "Taskbar" {
+		x, y = wa.Right-w-18, wa.Bottom-h-12
+	}
+	floatingDockState.place(desktopRect{x, y, x + w, y + h}, wa, app.store.Settings.FloatingAutoHide)
+	r = floatingDockState.normal
+	z := ^uintptr(1) // HWND_NOTOPMOST
+	if app.store.Settings.FloatingTopmost {
+		z = ^uintptr(0) // HWND_TOPMOST
+	}
+	pSetWindowPos.Call(uintptr(app.floating), z, uintptr(r.Left), uintptr(r.Top), uintptr(r.width()), uintptr(r.height()), SWP_NOACTIVATE|SWP_NOOWNERZORDER)
 	alpha := byte(app.store.Settings.FloatingOpacity * 255)
 	if alpha < 100 {
 		alpha = 100
 	}
 	pSetLayeredWindowAttributes.Call(uintptr(app.floating), 0, uintptr(alpha), LWA_ALPHA)
+	if app.store.Settings.FloatingAutoHide {
+		pSetTimer.Call(uintptr(app.floating), timerFloatingDock, 100, 0)
+	} else {
+		pKillTimer.Call(uintptr(app.floating), timerFloatingDock)
+	}
 	invalidate(app.floating)
 }
 
@@ -127,6 +244,10 @@ func paintFloating(hwnd HWND) {
 	var r RECT
 	pGetClientRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&r)))
 	bg, fg, ac := floatPalette()
+	if floatingDockState.collapsed {
+		fill(HDC(hdc), r, ac)
+		return
+	}
 	fill(HDC(hdc), r, bg)
 	now := time.Now()
 	earned, progress := app.store.TodayEarned(now)

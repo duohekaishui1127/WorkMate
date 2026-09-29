@@ -97,6 +97,8 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			{118, 478, 396, "挂件显示倒计时", s.FloatingShowCountdown}, {119, 478, 426, "挂件显示进度", s.FloatingShowProgress},
 			{126, 478, 456, "挂件显示短句", s.FloatingShowPhrase}, {127, 478, 486, "挂件使用紧凑模式", s.FloatingCompact},
 			{121, 478, 516, "挂件贴任务栏上沿", s.FloatingMode == "Taskbar"},
+			{128, 478, 546, "靠边自动隐藏，鼠标靠近展开", s.FloatingAutoHide},
+			{129, 478, 576, "挂件始终置顶", s.FloatingTopmost},
 		}
 		for _, c := range checks {
 			ctl := createCtl(hwnd, "BUTTON", c.label, BS_AUTOCHECKBOX|WS_TABSTOP, c.x, c.y, 410, 26, c.id)
@@ -104,7 +106,7 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 				pSendMessage.Call(uintptr(ctl), BM_SETCHECK, BST_CHECKED, 0)
 			}
 		}
-		createCtl(hwnd, "STATIC", "今日收入按日程估算；报告收入按记录工时估算。年假额度按参加工作日期估算。", 0, 24, 564, 864, 40, 0)
+		createCtl(hwnd, "STATIC", "今日收入按日程估算；报告收入按记录工时估算。年假额度按参加工作日期估算。\r\n拖动挂件靠近屏幕边缘即可吸附。\r\nCtrl+Alt+Q 或右键挂件可立即隐藏全部窗口。", 0, 24, 530, 410, 102, 0)
 		createCtl(hwnd, "BUTTON", "保存设置", BS_PUSHBUTTON|WS_TABSTOP, 674, 616, 100, 36, 190)
 		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 798, 616, 90, 36, 191)
 		return 0
@@ -186,6 +188,7 @@ func saveSettingsFromWindow(hwnd HWND) {
 	next.ReminderEnabled = checked(hwnd, 116)
 	next.FloatingShowEarned, next.FloatingShowCountdown, next.FloatingShowProgress = checked(hwnd, 117), checked(hwnd, 118), checked(hwnd, 119)
 	next.FloatingShowPhrase, next.FloatingCompact = checked(hwnd, 126), checked(hwnd, 127)
+	next.FloatingAutoHide, next.FloatingTopmost = checked(hwnd, 128), checked(hwnd, 129)
 	next.FloatingMode = "Screen"
 	if checked(hwnd, 121) {
 		next.FloatingMode = "Taskbar"

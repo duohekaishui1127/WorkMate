@@ -41,7 +41,7 @@ func TestWindowsUISettingsAndReports(t *testing.T) {
 	pGetClientRect.Call(uintptr(settingsWnd), uintptr(unsafe.Pointer(&client)))
 	var origin POINT
 	user32.NewProc("ClientToScreen").Call(uintptr(settingsWnd), uintptr(unsafe.Pointer(&origin)))
-	ids := []int{100, 101, 102, 103, 104, 105, 106, 107, 108, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 190, 191}
+	ids := []int{100, 101, 102, 103, 104, 105, 106, 107, 108, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 190, 191}
 	for _, id := range ids {
 		ctl := getDlgItem(settingsWnd, id)
 		if ctl == 0 {
@@ -55,16 +55,17 @@ func TestWindowsUISettingsAndReports(t *testing.T) {
 	}
 	var save, last RECT
 	pGetWindowRect.Call(uintptr(getDlgItem(settingsWnd, 190)), uintptr(unsafe.Pointer(&save)))
-	pGetWindowRect.Call(uintptr(getDlgItem(settingsWnd, 121)), uintptr(unsafe.Pointer(&last)))
+	pGetWindowRect.Call(uintptr(getDlgItem(settingsWnd, 129)), uintptr(unsafe.Pointer(&last)))
 	if save.Top < last.Bottom {
 		t.Fatal("save button overlaps last settings checkbox")
 	}
 	if getText(getDlgItem(settingsWnd, 122)) != "16:30" {
 		t.Fatal("reminder time not initialized")
 	}
-	for _, id := range []int{114, 115, 120, 126, 127} {
+	for _, id := range []int{114, 115, 120, 126, 127, 128} {
 		pSendMessage.Call(uintptr(getDlgItem(settingsWnd, id)), BM_SETCHECK, BST_CHECKED, 0)
 	}
+	pSendMessage.Call(uintptr(getDlgItem(settingsWnd, 129)), BM_SETCHECK, 0, 0)
 	setText(getDlgItem(settingsWnd, 122), "17:45")
 	setText(getDlgItem(settingsWnd, 123), "65")
 	pSendMessage.Call(uintptr(getDlgItem(settingsWnd, 124)), CB_SETCURSEL, 2, 0)
@@ -80,7 +81,7 @@ func TestWindowsUISettingsAndReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := loaded.Settings
-	if !v.StartHidden || !v.ShowFloatingOnStartup || !v.ShowFloatingOnAutoStart || !v.FloatingShowPhrase || !v.FloatingCompact || v.FloatingSize != "Large" || v.FloatingPalette != "Mint" || v.FloatingOpacity != .65 || v.ReminderEveningHour != 17 || v.ReminderEveningMinute != 45 {
+	if !v.FloatingAutoHide || v.FloatingTopmost || !v.StartHidden || !v.ShowFloatingOnStartup || !v.ShowFloatingOnAutoStart || !v.FloatingShowPhrase || !v.FloatingCompact || v.FloatingSize != "Large" || v.FloatingPalette != "Mint" || v.FloatingOpacity != .65 || v.ReminderEveningHour != 17 || v.ReminderEveningMinute != 45 {
 		t.Fatalf("UI settings not persisted: %+v", v)
 	}
 	// Exercise the real timer handler at expiry without loading trial registry anchors.

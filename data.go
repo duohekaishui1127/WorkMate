@@ -40,6 +40,8 @@ type Settings struct {
 	FloatingLeft               int     `json:"FloatingLeft"`
 	FloatingTop                int     `json:"FloatingTop"`
 	FloatingMode               string  `json:"FloatingMode"`
+	FloatingAutoHide           bool    `json:"FloatingAutoHide"`
+	FloatingTopmost            bool    `json:"FloatingTopmost"`
 	FloatingShowEarned         bool    `json:"FloatingShowEarned"`
 	FloatingShowCountdown      bool    `json:"FloatingShowCountdown"`
 	FloatingShowProgress       bool    `json:"FloatingShowProgress"`
@@ -132,7 +134,7 @@ func defaultSettings() Settings {
 		PaydayDay: 10, UseMainlandHolidayCalendar: true,
 		FloatingOpacity: 0.94, FloatingLeft: -1, FloatingTop: -1, FloatingMode: "Screen",
 		FloatingShowEarned: true, FloatingShowCountdown: true, FloatingShowProgress: true,
-		FloatingPalette: "Lavender", FloatingSize: "Medium",
+		FloatingPalette: "Lavender", FloatingSize: "Medium", FloatingTopmost: true,
 		ReminderEnabled: true, ReminderEveningHour: 16, ReminderEveningMinute: 30,
 	}
 }

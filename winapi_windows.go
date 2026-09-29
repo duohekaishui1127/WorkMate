@@ -22,6 +22,11 @@ type HBITMAP uintptr
 
 type POINT struct{ X, Y int32 }
 type RECT struct{ Left, Top, Right, Bottom int32 }
+type MONITORINFO struct {
+	CbSize        uint32
+	Monitor, Work RECT
+	Flags         uint32
+}
 type MSG struct {
 	HWnd           HWND
 	Message        uint32
@@ -105,6 +110,8 @@ type BITMAPINFO struct {
 	Colors [1]uint32
 }
 
+const MONITOR_DEFAULTTONEAREST = 2
+
 const (
 	CS_HREDRAW           = 0x0002
 	CS_VREDRAW           = 0x0001
@@ -125,6 +132,7 @@ const (
 	WS_EX_TOOLWINDOW     = 0x00000080
 	WS_EX_TOPMOST        = 0x00000008
 	WS_EX_LAYERED        = 0x00080000
+	WS_EX_NOACTIVATE     = 0x08000000
 	BS_PUSHBUTTON        = 0x00000000
 	BS_AUTOCHECKBOX      = 0x00000003
 	BM_GETCHECK          = 0x00F0
@@ -136,6 +144,7 @@ const (
 	EM_SETSEL            = 0x00B1
 	SW_HIDE              = 0
 	SW_SHOWNORMAL        = 1
+	SW_SHOWNOACTIVATE    = 4
 	SW_SHOW              = 5
 	SW_RESTORE           = 9
 	WM_NULL              = 0x0000
@@ -154,7 +163,13 @@ const (
 	WM_LBUTTONDBLCLK     = 0x0203
 	WM_RBUTTONUP         = 0x0205
 	WM_MOUSEMOVE         = 0x0200
+	WM_NCRBUTTONDOWN     = 0x00A4
+	WM_NCRBUTTONUP       = 0x00A5
 	WM_NCHITTEST         = 0x0084
+	WM_ENTERSIZEMOVE     = 0x0231
+	WM_EXITSIZEMOVE      = 0x0232
+	WM_DISPLAYCHANGE     = 0x007E
+	WM_SETTINGCHANGE     = 0x001A
 	WM_SETCURSOR         = 0x0020
 	WM_APP               = 0x8000
 	WM_APP_TRAY          = WM_APP + 1
@@ -216,6 +231,7 @@ const (
 	SWP_NOSIZE           = 0x0001
 	SWP_NOZORDER         = 0x0004
 	SWP_NOACTIVATE       = 0x0010
+	SWP_NOOWNERZORDER    = 0x0200
 	SPI_GETWORKAREA      = 0x0030
 	OFN_EXPLORER         = 0x00080000
 	OFN_PATHMUSTEXIST    = 0x00000800
@@ -284,6 +300,8 @@ var (
 	pIsWindowVisible            = user32.NewProc("IsWindowVisible")
 	pGetCursorPos               = user32.NewProc("GetCursorPos")
 	pGetWindowRect              = user32.NewProc("GetWindowRect")
+	pMonitorFromWindow          = user32.NewProc("MonitorFromWindow")
+	pGetMonitorInfo             = user32.NewProc("GetMonitorInfoW")
 	pCreatePopupMenu            = user32.NewProc("CreatePopupMenu")
 	pAppendMenu                 = user32.NewProc("AppendMenuW")
 	pTrackPopupMenu             = user32.NewProc("TrackPopupMenu")

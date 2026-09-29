@@ -309,11 +309,11 @@ func showMain() {
 	invalidate(app.main)
 }
 func panicHide() {
-	if app.main != 0 {
-		show(app.main, SW_HIDE)
-	}
-	if app.floating != 0 {
-		show(app.floating, SW_HIDE)
+	hideFloating()
+	for _, hwnd := range []HWND{settingsWnd, calendarWnd, timelineWnd, dayEditWnd, purchaseWnd, app.main} {
+		if hwnd != 0 {
+			show(hwnd, SW_HIDE)
+		}
 	}
 }
 
