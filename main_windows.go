@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -51,6 +52,8 @@ type appState struct {
 var app appState
 
 func main() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	// Keep a stable mutex name across future releases so different WorkMate
 	// versions cannot run side-by-side. We also acquire the V7 legacy mutex
 	// so upgrading while 0.7.0 is still running remains single-instance.
@@ -106,15 +109,16 @@ func main() {
 			background = true
 		}
 	}
-	if background && st.Settings.StartHidden {
+	hidden, floating := startupPresentation(st.Settings, background)
+	if hidden {
 		show(app.main, SW_HIDE)
 	} else {
 		show(app.main, SW_SHOWNORMAL)
 	}
-	if (!background && st.Settings.ShowFloatingOnStartup) || (background && st.Settings.ShowFloatingOnAutoStart) {
+	if floating {
 		toggleFloating(true)
 	}
-	if !background && app.license != nil && !app.license.HasProAccess(time.Now()) {
+	if app.license.ConsumeExpiryNotice(time.Now()) && !hidden {
 		openPurchaseWindow()
 	}
 
@@ -123,6 +127,18 @@ func main() {
 		r, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		if int32(r) <= 0 {
 			break
+		}
+		handled := false
+		for _, dialog := range []HWND{settingsWnd, dayEditWnd, purchaseWnd} {
+			if dialog != 0 {
+				if ok, _, _ := pIsDialogMessage.Call(uintptr(dialog), uintptr(unsafe.Pointer(&msg))); ok != 0 {
+					handled = true
+					break
+				}
+			}
+		}
+		if handled {
+			continue
 		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
 		pDispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
@@ -217,6 +233,12 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			now := time.Now()
 			app.store.Tick(now)
 			app.license.Tick(now)
+			if app.license.ConsumeExpiryNotice(now) {
+				openPurchaseWindow()
+			}
+			if purchaseWnd != 0 {
+				setText(getDlgItem(purchaseWnd, 507), "当前状态："+app.license.StatusText(now))
+			}
 			checkReminders(now)
 			invalidate(hwnd)
 			if app.floating != 0 {
@@ -326,19 +348,31 @@ func handleMainClick(x, y int) {
 			case "calendar":
 				openCalendarWindow()
 			case "timeline":
-				if requirePro("今日工作时间轴") { openTimelineWindow() }
+				if requirePro("今日工作时间轴") {
+					openTimelineWindow()
+				}
 			case "dailyshare":
-				if requirePro("今日分享卡") { saveShareCard("daily") }
+				if requirePro("今日分享卡") {
+					saveShareCard("daily")
+				}
 			case "monthshare":
-				if requirePro("月度打工报告") { saveShareCard("month") }
+				if requirePro("月度打工报告") {
+					saveShareCard("month")
+				}
 			case "yearshare":
-				if requirePro("年度打工报告") { saveShareCard("year") }
+				if requirePro("年度打工报告") {
+					saveShareCard("year")
+				}
 			case "floating":
 				toggleFloating(false)
 			case "backup":
-				if requirePro("备份与恢复") { backupFromUI() }
+				if requirePro("备份与恢复") {
+					backupFromUI()
+				}
 			case "restore":
-				if requirePro("备份与恢复") { restoreFromUI() }
+				if requirePro("备份与恢复") {
+					restoreFromUI()
+				}
 			}
 			return
 		}

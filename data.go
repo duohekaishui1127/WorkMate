@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -459,11 +460,20 @@ func inWorkWindow(now time.Time, set Settings) bool {
 }
 
 func hmToMinutes(v string) (int, error) {
-	var h, m int
-	if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d:%d", &h, &m); err != nil {
-		return 0, err
+	parts := strings.Split(strings.TrimSpace(v), ":")
+	if len(parts) != 2 || len(parts[0]) < 1 || len(parts[0]) > 2 || len(parts[1]) != 2 {
+		return 0, errors.New("bad time")
 	}
-	if h < 0 || h > 23 || m < 0 || m > 59 {
+	for _, part := range parts {
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return 0, errors.New("bad time")
+			}
+		}
+	}
+	h, e1 := strconv.Atoi(parts[0])
+	m, e2 := strconv.Atoi(parts[1])
+	if e1 != nil || e2 != nil || h > 23 || m > 59 {
 		return 0, errors.New("bad time")
 	}
 	return h*60 + m, nil
@@ -565,7 +575,7 @@ func (s *Store) AnnualLeaveEntitlement(now time.Time) float64 {
 		return 0
 	}
 	years := now.Year() - t.Year()
-	if now.YearDay() < t.YearDay() {
+	if now.Month() < t.Month() || (now.Month() == t.Month() && now.Day() < t.Day()) {
 		years--
 	}
 	if years < 1 {
@@ -581,20 +591,27 @@ func (s *Store) AnnualLeaveEntitlement(now time.Time) float64 {
 }
 
 func (s *Store) YearSummary(year int) Summary {
-	return s.summary(time.Date(year, 1, 1, 0, 0, 0, 0, time.Local), time.Date(year+1, 1, 1, 0, 0, 0, 0, time.Local))
+	return s.YearSummaryAt(year, time.Now())
+}
+func (s *Store) YearSummaryAt(year int, now time.Time) Summary {
+	return s.summaryAt(time.Date(year, 1, 1, 0, 0, 0, 0, now.Location()), time.Date(year+1, 1, 1, 0, 0, 0, 0, now.Location()), now)
 }
 func (s *Store) MonthSummary(year int, month time.Month) Summary {
-	return s.summary(time.Date(year, month, 1, 0, 0, 0, 0, time.Local), time.Date(year, month+1, 1, 0, 0, 0, 0, time.Local))
+	return s.MonthSummaryAt(year, month, time.Now())
+}
+func (s *Store) MonthSummaryAt(year int, month time.Month, now time.Time) Summary {
+	return s.summaryAt(time.Date(year, month, 1, 0, 0, 0, 0, now.Location()), time.Date(year, month+1, 1, 0, 0, 0, 0, now.Location()), now)
 }
 func (s *Store) WeekSummary(now time.Time) Summary {
 	off := (int(now.Weekday()) + 6) % 7
 	start := time.Date(now.Year(), now.Month(), now.Day()-off, 0, 0, 0, 0, now.Location())
-	return s.summary(start, start.AddDate(0, 0, 7))
+	return s.summaryAt(start, start.AddDate(0, 0, 7), now)
 }
 
 type Summary struct {
 	Start, End           time.Time
-	WorkDays             int
+	WorkDays             int // Scheduled workdays through today, not attendance.
+	RecordedWorkDays     int
 	WorkMinutes          float64
 	OvertimeMinutes      float64
 	AnnualDays           float64
@@ -603,23 +620,31 @@ type Summary struct {
 	RestDays             int
 	AdjustedWorkdays     int
 	StatutoryDays        int
-	ReferenceIncome      float64
+	ReferenceIncome      float64 // Estimated from recorded regular work minutes.
 	ReferenceOvertimePay float64
 	BusiestMonth         int
 	BusiestMonthOvertime float64
 	LatestEnd            string
-	LongestStreak        int
+	LongestStreak        int // Consecutive calendar days with recorded work.
 }
 
-func (s *Store) summary(start, end time.Time) Summary {
+func (s *Store) summaryAt(start, end, now time.Time) Summary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	cutoff := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+	if end.After(cutoff) {
+		end = cutoff
+	}
+	if end.Before(start) {
+		end = start
+	}
 	sm := Summary{Start: start, End: end}
 	overtimeByMonth := map[int]float64{}
 	recByDate := map[string]DailyRecord{}
 	for _, r := range s.Records {
 		recByDate[r.Date] = r
 	}
+	streak := 0
 	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
 		info := s.DayInfo(d)
 		if info.IsWorkday {
@@ -633,15 +658,35 @@ func (s *Store) summary(start, end time.Time) Summary {
 		if info.Type == "StatutoryHoliday" {
 			sm.StatutoryDays++
 		}
-		if r, ok := recByDate[d.Format("2006-01-02")]; ok {
-			sm.WorkMinutes += r.WorkMinutes
-			sm.OvertimeMinutes += r.OvertimeMinutes
-			overtimeByMonth[int(d.Month())] += r.OvertimeMinutes
-			if r.LastOvertimeEnd > sm.LatestEnd {
-				sm.LatestEnd = r.LastOvertimeEnd
+		r := recByDate[d.Format("2006-01-02")]
+		// Include live overtime without mutating saved records.
+		if s.overtimeStarted != nil {
+			a, b := *s.overtimeStarted, now
+			if a.Before(d) {
+				a = d
 			}
-			mult := info.OvertimeMultiplier
-			sm.ReferenceOvertimePay += (r.OvertimeMinutes / 60) * s.hourlyBaseUnlocked() * mult
+			if next := d.AddDate(0, 0, 1); b.After(next) {
+				b = next
+			}
+			if b.After(a) {
+				r.OvertimeMinutes += b.Sub(a).Minutes()
+			}
+		}
+		sm.WorkMinutes += r.WorkMinutes
+		sm.OvertimeMinutes += r.OvertimeMinutes
+		overtimeByMonth[int(d.Month())] += r.OvertimeMinutes
+		if r.LastOvertimeEnd > sm.LatestEnd {
+			sm.LatestEnd = r.LastOvertimeEnd
+		}
+		sm.ReferenceOvertimePay += r.OvertimeMinutes / 60 * s.hourlyBaseUnlocked() * info.OvertimeMultiplier
+		if r.WorkMinutes > 0 || r.OvertimeMinutes > 0 {
+			sm.RecordedWorkDays++
+			streak++
+			if streak > sm.LongestStreak {
+				sm.LongestStreak = streak
+			}
+		} else {
+			streak = 0
 		}
 		for _, l := range s.Leaves {
 			if l.Date == d.Format("2006-01-02") {
@@ -651,30 +696,51 @@ func (s *Store) summary(start, end time.Time) Summary {
 			}
 		}
 	}
-	sm.ReferenceIncome = float64(sm.WorkDays) * (s.Settings.MonthlySalary / s.Settings.MonthlyWorkDays)
-	maxm := 0.0
-	for m, v := range overtimeByMonth {
-		if v > maxm {
-			maxm = v
-			sm.BusiestMonth = m
-			sm.BusiestMonthOvertime = v
+	sm.ReferenceIncome = sm.WorkMinutes / float64(workMinutesPerDay(s.Settings)) * (s.Settings.MonthlySalary / s.Settings.MonthlyWorkDays)
+	for m := 1; m <= 12; m++ {
+		if v := overtimeByMonth[m]; v > sm.BusiestMonthOvertime {
+			sm.BusiestMonth, sm.BusiestMonthOvertime = m, v
 		}
 	}
-	// longest scheduled-work streak in range
-	streak, best := 0, 0
-	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
-		if s.DayInfo(d).IsWorkday {
-			streak++
-			if streak > best {
-				best = streak
-			}
-		} else {
-			streak = 0
-		}
-	}
-	sm.LongestStreak = best
 	return sm
 }
+
+type AnnualLeaveBalance struct {
+	Configured                                       bool
+	Entitlement, Used, Planned, Remaining, Available float64
+}
+
+func (s *Store) AnnualLeaveBalance(now time.Time) AnnualLeaveBalance {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	start, err := parseAnyDate(s.Settings.CumulativeWorkStartDate)
+	if err != nil || start.Format("2006-01-02") > now.Format("2006-01-02") {
+		return AnnualLeaveBalance{}
+	}
+	b := AnnualLeaveBalance{Configured: true, Entitlement: s.AnnualLeaveEntitlement(now)}
+	today := now.Format("2006-01-02")
+	for _, l := range s.Leaves {
+		d, err := parseAnyDate(l.Date)
+		if err != nil || d.Year() != now.Year() {
+			continue
+		}
+		if d.Format("2006-01-02") <= today {
+			b.Used += l.AnnualDays
+		} else {
+			b.Planned += l.AnnualDays
+		}
+	}
+	b.Remaining = b.Entitlement - b.Used
+	if b.Remaining < 0 {
+		b.Remaining = 0
+	}
+	b.Available = b.Remaining - b.Planned
+	if b.Available < 0 {
+		b.Available = 0
+	}
+	return b
+}
+
 func (s *Store) hourlyBaseUnlocked() float64 {
 	base := s.Settings.OvertimeBaseSalary
 	if base <= 0 {

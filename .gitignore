@@ -1,0 +1,4 @@
+/dist/
+/rsrc*.syso
+/developer-secrets/license-private.key
+*.test

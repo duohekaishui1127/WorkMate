@@ -49,6 +49,8 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LEGAL-NOTES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\payment_qr.png"; DestDir: "{app}"; DestName: "payment_qr.png"; Flags: ignoreversion
 
+Source: "..\assets\commerce.json"; DestDir: "{app}"; Flags: ignoreversion
+
 [Icons]
 Name: "{group}\WorkMate"; Filename: "{app}\WorkMate.exe"; WorkingDir: "{app}"; IconFilename: "{app}\WorkMate.ico"
 Name: "{autodesktop}\WorkMate"; Filename: "{app}\WorkMate.exe"; WorkingDir: "{app}"; IconFilename: "{app}\WorkMate.ico"; Tasks: desktopicon

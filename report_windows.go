@@ -70,6 +70,7 @@ func renderShareCard(path, kind string, now time.Time) error {
 	default:
 		drawYearReport(hdc, now, p, w, h)
 	}
+	pGdiFlush.Call()
 	// copy BGRA DIB memory into RGBA image
 	raw := unsafe.Slice((*byte)(bits), w*h*4)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -112,12 +113,12 @@ func drawDailyReport(hdc HDC, now time.Time, p palette, w, h int) {
 		drawText(hdc, a+"  "+b, RECT{142, 455, 900, 505}, 22, FW_SEMIBOLD, p.Text, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 		drawText(hdc, fmt.Sprintf("今日打工进度  %d%%", int(progress*100)), RECT{142, 525, 900, 570}, 20, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	}
-	sm := app.store.MonthSummary(now.Year(), now.Month())
+	sm := app.store.MonthSummaryAt(now.Year(), now.Month(), now)
 	reportStatRow(hdc, 95, 690, 985, "本月加班", fmt.Sprintf("%.1f 小时", sm.OvertimeMinutes/60), p.Peach, p)
-	reportStatRow(hdc, 95, 820, 985, "本月工作日", fmt.Sprintf("%d 天", sm.WorkDays), p.Sky, p)
+	reportStatRow(hdc, 95, 820, 985, "本月已过工作日", fmt.Sprintf("%d 天", sm.WorkDays), p.Sky, p)
 	reportStatRow(hdc, 95, 950, 985, "下一个休息日", formatDateShort(app.store.NextRestDay(now)), p.Mint, p)
 	drawText(hdc, "今天的任务完成标准：活到下班。", RECT{95, 1130, 985, 1200}, 24, FW_BOLD, p.Text, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	drawText(hdc, "所有数据仅保存在本机 · WorkMate V"+appVersion, RECT{95, 1250, 985, 1300}, 14, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	drawText(hdc, "今日收入按日程估算 · 数据仅保存在本机 · WorkMate V"+appVersion, RECT{95, 1250, 985, 1300}, 14, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 func reportStatRow(hdc HDC, x1, y, x2 int32, label, val string, bg uint32, p palette) {
 	roundBox(hdc, RECT{x1, y, x2, y + 105}, bg, p.Border, 22)
@@ -126,9 +127,9 @@ func reportStatRow(hdc HDC, x1, y, x2 int32, label, val string, bg uint32, p pal
 }
 
 func drawMonthReport(hdc HDC, now time.Time, p palette, w, h int) {
-	sm := app.store.MonthSummary(now.Year(), now.Month())
+	sm := app.store.MonthSummaryAt(now.Year(), now.Month(), now)
 	drawText(hdc, fmt.Sprintf("%d 年 %d 月打工报告", now.Year(), now.Month()), RECT{95, 160, 950, 230}, 42, FW_BOLD, p.Text, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	drawText(hdc, "这个月你又稳定地把时间换成了工资。", RECT{98, 235, 950, 280}, 19, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	drawText(hdc, "截至今日的记录，收入按记录工时估算。", RECT{98, 235, 950, 280}, 19, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	reportBigGrid(hdc, sm, p, 330)
 	reportStatRow(hdc, 95, 930, 985, "参考加班工资", fmt.Sprintf("¥ %.2f", sm.ReferenceOvertimePay), p.Peach, p)
 	reportStatRow(hdc, 95, 1060, 985, "年假 / 补休", fmt.Sprintf("%.1f 天 / %.1f 小时", sm.AnnualDays, sm.CompHours), p.Mint, p)
@@ -140,16 +141,16 @@ func drawMonthReport(hdc HDC, now time.Time, p palette, w, h int) {
 		phrase = "恭喜，这个月老板少拥有了你一点。"
 	}
 	drawText(hdc, phrase, RECT{100, 1390, 980, 1470}, 26, FW_BOLD, p.Text, DT_CENTER|DT_VCENTER|DT_WORDBREAK)
-	drawText(hdc, "WorkMate · 本地离线生成", RECT{100, 1620, 980, 1670}, 14, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	drawText(hdc, "截至 "+now.Format("2006-01-02")+" · 本地离线生成", RECT{100, 1620, 980, 1670}, 14, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 
 func drawYearReport(hdc HDC, now time.Time, p palette, w, h int) {
-	sm := app.store.YearSummary(now.Year())
+	sm := app.store.YearSummaryAt(now.Year(), now)
 	drawText(hdc, fmt.Sprintf("你的 %d 打工报告", now.Year()), RECT{95, 155, 950, 230}, 44, FW_BOLD, p.Text, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	drawText(hdc, "这一年，你把很多清醒时间交给了工作，也顺利把工资领到了手。", RECT{98, 238, 950, 300}, 20, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_WORDBREAK)
+	drawText(hdc, "截至今日的工作与休息记录，收入按记录工时估算。", RECT{98, 238, 950, 300}, 20, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_WORDBREAK)
 	reportBigGrid(hdc, sm, p, 340)
 	y := 940
-	reportStatRow(hdc, 95, int32(y), 985, "参考收入", fmt.Sprintf("¥ %.0f", sm.ReferenceIncome), p.Lavender, p)
+	reportStatRow(hdc, 95, int32(y), 985, "记录工时估算收入", fmt.Sprintf("¥ %.0f", sm.ReferenceIncome), p.Lavender, p)
 	y += 130
 	reportStatRow(hdc, 95, int32(y), 985, "参考加班工资", fmt.Sprintf("¥ %.2f", sm.ReferenceOvertimePay), p.Peach, p)
 	y += 130
@@ -165,21 +166,21 @@ func drawYearReport(hdc HDC, now time.Time, p palette, w, h int) {
 	}
 	reportStatRow(hdc, 95, int32(y), 985, "最晚一次加班结束", late, p.Sky, p)
 	y += 130
-	reportStatRow(hdc, 95, int32(y), 985, "最长连续工作", fmt.Sprintf("%d 天", sm.LongestStreak), p.Mint, p)
+	reportStatRow(hdc, 95, int32(y), 985, "最长连续有工时记录", fmt.Sprintf("%d 天", sm.LongestStreak), p.Mint, p)
 	phrase := "恭喜，你又平安打完一年工。"
 	if sm.OvertimeMinutes > 120*60 {
 		phrase = "这一年你加了不少班，请记得工资可以买东西，时间买不回来。"
 	}
 	drawText(hdc, phrase, RECT{110, 1745, 970, 1860}, 29, FW_BOLD, p.Text, DT_CENTER|DT_VCENTER|DT_WORDBREAK)
 	drawText(hdc, "你今年最擅长的事情：把“再坚持一下”坚持了很多次。", RECT{110, 1880, 970, 1960}, 21, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_WORDBREAK)
-	drawText(hdc, "WorkMate · 所有记录均在本机生成", RECT{100, 2070, 980, 2120}, 14, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	drawText(hdc, "截至 "+now.Format("2006-01-02")+" · 所有记录均在本机生成", RECT{100, 2070, 980, 2120}, 14, FW_NORMAL, p.Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 
 func reportBigGrid(hdc HDC, sm Summary, p palette, top int32) {
 	items := []struct {
 		label, val string
 		bg         uint32
-	}{{"工作天数", fmt.Sprintf("%d 天", sm.WorkDays), p.Sky}, {"累计工作", fmt.Sprintf("%.1f h", sm.WorkMinutes/60), p.Lavender}, {"累计加班", fmt.Sprintf("%.1f h", sm.OvertimeMinutes/60), p.Peach}, {"休息天数", fmt.Sprintf("%d 天", sm.RestDays), p.Mint}}
+	}{{"有工时记录的天数", fmt.Sprintf("%d 天", sm.RecordedWorkDays), p.Sky}, {"累计工作", fmt.Sprintf("%.1f h", sm.WorkMinutes/60), p.Lavender}, {"累计加班", fmt.Sprintf("%.1f h", sm.OvertimeMinutes/60), p.Peach}, {"已过休息日", fmt.Sprintf("%d 天", sm.RestDays), p.Mint}}
 	for i, it := range items {
 		col, row := i%2, i/2
 		x := int32(95 + col*455)

@@ -111,7 +111,9 @@ func paintMain(hwnd HWND) {
 	if app.license != nil {
 		status := app.license.StatusText(now)
 		drawText(HDC(hdc), status, RECT{480, 34, 650, 60}, 12, FW_SEMIBOLD, p.Accent, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		if !app.license.IsPro() { button(HDC(hdc), "buypro", "买断 PRO", RECT{652, 34, 748, 78}, p.Peach, p.Text, p.Border) }
+		if !app.license.IsPro() {
+			button(HDC(hdc), "buypro", "买断 PRO", RECT{652, 34, 748, 78}, p.Peach, p.Text, p.Border)
+		}
 	}
 	paintHero(HDC(hdc), now, p)
 	paintMetrics(HDC(hdc), now, p)
@@ -128,7 +130,7 @@ func paintHero(hdc HDC, now time.Time, p palette) {
 	}
 	roundBox(hdc, r, bg, p.Border, 24)
 	tag := info.Name
-	title := "今天继续打工"
+	title := "今日收入（日程估算）"
 	sub := "每一分钟都算数，至少工资别白算。"
 	valueColor := p.Money
 	earned, progress := app.store.TodayEarned(now)
@@ -240,16 +242,16 @@ func weekdayCN(w time.Weekday) string {
 
 func paintSummaries(hdc HDC, now time.Time, p palette) {
 	wk := app.store.WeekSummary(now)
-	mo := app.store.MonthSummary(now.Year(), now.Month())
-	yr := app.store.YearSummary(now.Year())
+	mo := app.store.MonthSummaryAt(now.Year(), now.Month(), now)
+	yr := app.store.YearSummaryAt(now.Year(), now)
 	cards := []struct {
 		r                        RECT
 		bg                       uint32
 		title, val, sub, id, btn string
 	}{
-		{RECT{42, 478, 370, 650}, p.Sky, "这周过得怎么样", fmt.Sprintf("%.1f h", wk.WorkMinutes/60), fmt.Sprintf("加班 %.1fh · 工作 %d 天", wk.OvertimeMinutes/60, wk.WorkDays), "dailyshare", "今日分享卡"},
-		{RECT{385, 478, 713, 650}, p.Peach, "这个月打了多少工", fmt.Sprintf("%d 天", mo.WorkDays), fmt.Sprintf("加班 %.1fh · 调休 %d 天", mo.OvertimeMinutes/60, mo.AdjustedWorkdays), "monthshare", "月度报告"},
-		{RECT{728, 478, 1078, 650}, p.Lavender, "今年的人类观察报告", fmt.Sprintf("¥%.0f", yr.ReferenceIncome), fmt.Sprintf("工作 %d 天 · 加班 %.1fh", yr.WorkDays, yr.OvertimeMinutes/60), "yearshare", "年度打工报告"},
+		{RECT{42, 478, 370, 650}, p.Sky, "这周过得怎么样", fmt.Sprintf("%.1f h", wk.WorkMinutes/60), fmt.Sprintf("加班 %.1fh · 有记录 %d 天", wk.OvertimeMinutes/60, wk.RecordedWorkDays), "dailyshare", "今日分享卡"},
+		{RECT{385, 478, 713, 650}, p.Peach, "这个月的工作记录", fmt.Sprintf("%d 天", mo.RecordedWorkDays), fmt.Sprintf("加班 %.1fh · 调休 %d 天", mo.OvertimeMinutes/60, mo.AdjustedWorkdays), "monthshare", "月度报告"},
+		{RECT{728, 478, 1078, 650}, p.Lavender, "今年的工时估算收入", fmt.Sprintf("¥%.0f", yr.ReferenceIncome), fmt.Sprintf("记录 %d 天 · 加班 %.1fh", yr.RecordedWorkDays, yr.OvertimeMinutes/60), "yearshare", "年度打工报告"},
 	}
 	for _, c := range cards {
 		roundBox(hdc, c.r, c.bg, p.Border, 20)
@@ -286,11 +288,14 @@ func paintActions(hdc HDC, p palette) {
 		button(hdc, it.id, it.label, RECT{int32(x), int32(y), int32(x + it.w), int32(y + 44)}, bg, fg, p.Border)
 		x += it.w + 12
 	}
+	drawText(hdc, annualLeaveText(app.store.AnnualLeaveBalance(time.Now())), RECT{42, 764, 1078, 793}, 12, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	drawText(hdc, "Ctrl + Alt + Q：老板来了 · Ctrl + Alt + G：呼出主界面", RECT{42, 732, 720, 764}, 12, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 }
 
 func checkReminders(now time.Time) {
-	if app.license != nil && !app.license.HasProAccess(now) { return }
+	if app.license != nil && !app.license.HasProAccess(now) {
+		return
+	}
 	if !app.store.Settings.ReminderEnabled {
 		return
 	}
@@ -308,33 +313,7 @@ func checkReminders(now time.Time) {
 		_ = app.store.SaveAll()
 		showBalloon(title, body, false)
 	}
-	info := app.store.DayInfo(now)
-	if info.IsWorkday {
-		we, _ := hmToMinutes(app.store.Settings.WorkEnd)
-		target := time.Date(now.Year(), now.Month(), now.Day(), we/60, we%60, 0, 0, now.Location())
-		left := target.Sub(now)
-		if left > 0 && left <= 30*time.Minute {
-			mark("off30", "还有 30 分钟左右下班", "今天也快熬过去了，再坚持一下。")
-		}
-		if left > 0 && left <= 5*time.Minute {
-			mark("off5", "还有 5 分钟下班", "请把灵魂慢慢从工位收回来。")
-		}
-		if left <= 0 && left > -2*time.Minute {
-			mark("off", "下班时间到", "今天辛苦了。")
-		}
-	}
-	tomorrow := now.AddDate(0, 0, 1)
-	ti := app.store.DayInfo(tomorrow)
-	if now.Hour() >= app.store.Settings.ReminderEveningHour {
-		if ti.Type == "AdjustedWorkday" {
-			mark("adjusted", "明天是调休工作日", "明天可能是周末，但还是要上班。")
-		}
-		if n := app.store.HolidayStartName(tomorrow); n != "" {
-			mark("holiday", "明天开始 "+n, "今天可以开始期待自由了。")
-		}
-		pd := app.store.NextPayday(now)
-		if pd.Format("2006-01-02") == tomorrow.Format("2006-01-02") {
-			mark("payday", "明天可能发工资", "钱还没到，精神先到账。")
-		}
+	for _, reminder := range app.store.DueReminders(now) {
+		mark(reminder.Key, reminder.Title, reminder.Body)
 	}
 }

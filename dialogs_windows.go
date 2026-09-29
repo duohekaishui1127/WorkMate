@@ -26,15 +26,19 @@ func createCtl(parent HWND, class, text string, style uintptr, x, y, w, h, id in
 	return hw
 }
 
+type settingChoice struct{ Key, Label string }
+
+var floatingSizeChoices = []settingChoice{{"Small", "小"}, {"Medium", "中"}, {"Large", "大"}}
+var floatingPaletteChoices = []settingChoice{{"Lavender", "薰衣草"}, {"Peach", "杏色"}, {"Mint", "薄荷"}, {"Pink", "粉色"}, {"Sky", "天空蓝"}}
+var applyAutoStart = setAutoStart
+
 func openSettingsWindow() {
 	if settingsWnd != 0 {
 		show(settingsWnd, SW_RESTORE)
 		pSetForegroundWindow.Call(uintptr(settingsWnd))
 		return
 	}
-	style := uintptr(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU)
-	r, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16(settingsClass))), uintptr(unsafe.Pointer(u16("WorkMate 设置"))), style, 520, 170, 590, 720, uintptr(app.main), 0, uintptr(app.hInst), 0)
-	settingsWnd = HWND(r)
+	settingsWnd = createOwnedWindow(settingsClass, "WorkMate 设置", 920, 666, app.main)
 	show(settingsWnd, SW_SHOW)
 }
 
@@ -43,35 +47,66 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_CREATE:
 		f, _, _ := pCreateFont.Call(uintptr(^uint32(13-1)), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, uintptr(unsafe.Pointer(u16("Microsoft YaHei UI"))))
 		settingsFont = HFONT(f)
-		y := 20
-		addEditRow := func(label string, id int, val string) {
-			createCtl(hwnd, "STATIC", label, 0, 22, y, 180, 26, 0)
-			createCtl(hwnd, "EDIT", val, WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 210, y-2, 330, 28, id)
-			y += 40
+		s := app.store.Settings
+		createCtl(hwnd, "STATIC", "工作与收入", 0, 24, 18, 400, 26, 0)
+		createCtl(hwnd, "STATIC", "启动、提醒与桌面挂件", 0, 478, 18, 410, 26, 0)
+		edit := func(x, y int, label string, id int, value string) {
+			createCtl(hwnd, "STATIC", label, 0, x, y+2, 174, 26, 0)
+			createCtl(hwnd, "EDIT", value, WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, x+178, y, 232, 28, id)
 		}
-		addEditRow("月薪（元）", 100, fmt.Sprintf("%.2f", app.store.Settings.MonthlySalary))
-		addEditRow("加班工资基数（0=月薪）", 101, fmt.Sprintf("%.2f", app.store.Settings.OvertimeBaseSalary))
-		addEditRow("上班时间 HH:MM", 102, app.store.Settings.WorkStart)
-		addEditRow("下班时间 HH:MM", 103, app.store.Settings.WorkEnd)
-		addEditRow("午休开始 HH:MM", 104, app.store.Settings.LunchStart)
-		addEditRow("午休结束 HH:MM", 105, app.store.Settings.LunchEnd)
-		addEditRow("发薪日（1-31）", 106, strconv.Itoa(app.store.Settings.PaydayDay))
-		addEditRow("累计参加工作日期", 107, app.store.Settings.CumulativeWorkStartDate)
-		y += 4
-		checks := []struct {
-			id    int
+		rows := []struct {
 			label string
-			v     bool
-		}{{110, "周六通常上班", app.store.Settings.WorkOnSaturday}, {111, "周日通常上班", app.store.Settings.WorkOnSunday}, {112, "使用中国大陆法定节假日/调休", app.store.Settings.UseMainlandHolidayCalendar}, {113, "开机自动静默启动", app.store.Settings.AutoStart}, {114, "手动启动也先隐藏到托盘", app.store.Settings.StartHidden}, {115, "开机后显示桌面挂件", app.store.Settings.ShowFloatingOnAutoStart}, {116, "启用本地智能提醒（Pro）", app.store.Settings.ReminderEnabled}, {117, "挂件显示今日收入", app.store.Settings.FloatingShowEarned}, {118, "挂件显示倒计时", app.store.Settings.FloatingShowCountdown}, {119, "挂件显示进度", app.store.Settings.FloatingShowProgress}, {121, "挂件贴任务栏上沿", app.store.Settings.FloatingMode == "Taskbar"}}
-		for _, c := range checks {
-			b := createCtl(hwnd, "BUTTON", c.label, BS_AUTOCHECKBOX|WS_TABSTOP, 24, y, 510, 26, c.id)
-			if c.v {
-				pSendMessage.Call(uintptr(b), BM_SETCHECK, BST_CHECKED, 0)
-			}
-			y += 30
+			id    int
+			value string
+		}{
+			{"月薪（元）", 100, fmt.Sprintf("%.2f", s.MonthlySalary)},
+			{"加班基数（0=月薪）", 101, fmt.Sprintf("%.2f", s.OvertimeBaseSalary)},
+			{"月计薪天数", 108, fmt.Sprintf("%.2f", s.MonthlyWorkDays)},
+			{"上班时间 HH:MM", 102, s.WorkStart}, {"下班时间 HH:MM", 103, s.WorkEnd},
+			{"午休开始 HH:MM", 104, s.LunchStart}, {"午休结束 HH:MM", 105, s.LunchEnd},
+			{"发薪日（1-31）", 106, strconv.Itoa(s.PaydayDay)},
+			{"参加工作日期", 107, s.CumulativeWorkStartDate},
 		}
-		createCtl(hwnd, "BUTTON", "保存设置", BS_PUSHBUTTON|WS_TABSTOP, 330, 650, 100, 36, 190)
-		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 442, 650, 90, 36, 191)
+		for i, r := range rows {
+			edit(24, 48+i*40, r.label, r.id, r.value)
+		}
+		edit(478, 48, "晚间提醒 HH:MM", 122, fmt.Sprintf("%02d:%02d", s.ReminderEveningHour, s.ReminderEveningMinute))
+		edit(478, 88, "挂件不透明度（%）", 123, fmt.Sprintf("%.0f", s.FloatingOpacity*100))
+		combo := func(y int, label string, id int, choices []settingChoice, value string) {
+			createCtl(hwnd, "STATIC", label, 0, 478, y+2, 174, 26, 0)
+			ctl := createCtl(hwnd, "COMBOBOX", "", CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL, 656, y, 232, 180, id)
+			for i, c := range choices {
+				pSendMessage.Call(uintptr(ctl), CB_ADDSTRING, 0, uintptr(unsafe.Pointer(u16(c.Label))))
+				if c.Key == value {
+					pSendMessage.Call(uintptr(ctl), CB_SETCURSEL, uintptr(i), 0)
+				}
+			}
+		}
+		combo(128, "挂件尺寸", 124, floatingSizeChoices, s.FloatingSize)
+		combo(168, "挂件配色", 125, floatingPaletteChoices, s.FloatingPalette)
+		checks := []struct {
+			id, x, y int
+			label    string
+			value    bool
+		}{
+			{110, 24, 412, "周六通常上班", s.WorkOnSaturday}, {111, 24, 442, "周日通常上班", s.WorkOnSunday},
+			{112, 24, 472, "使用中国大陆节假日与调休", s.UseMainlandHolidayCalendar},
+			{113, 478, 216, "登录 Windows 后自动静默启动", s.AutoStart}, {114, 478, 246, "手动启动先隐藏到托盘", s.StartHidden},
+			{120, 478, 276, "手动启动时显示挂件", s.ShowFloatingOnStartup}, {115, 478, 306, "自动启动时显示挂件", s.ShowFloatingOnAutoStart},
+			{116, 478, 336, "启用本地智能提醒（Pro）", s.ReminderEnabled}, {117, 478, 366, "挂件显示今日估算收入", s.FloatingShowEarned},
+			{118, 478, 396, "挂件显示倒计时", s.FloatingShowCountdown}, {119, 478, 426, "挂件显示进度", s.FloatingShowProgress},
+			{126, 478, 456, "挂件显示短句", s.FloatingShowPhrase}, {127, 478, 486, "挂件使用紧凑模式", s.FloatingCompact},
+			{121, 478, 516, "挂件贴任务栏上沿", s.FloatingMode == "Taskbar"},
+		}
+		for _, c := range checks {
+			ctl := createCtl(hwnd, "BUTTON", c.label, BS_AUTOCHECKBOX|WS_TABSTOP, c.x, c.y, 410, 26, c.id)
+			if c.value {
+				pSendMessage.Call(uintptr(ctl), BM_SETCHECK, BST_CHECKED, 0)
+			}
+		}
+		createCtl(hwnd, "STATIC", "今日收入按日程估算；报告收入按记录工时估算。年假额度按参加工作日期估算。", 0, 24, 564, 864, 40, 0)
+		createCtl(hwnd, "BUTTON", "保存设置", BS_PUSHBUTTON|WS_TABSTOP, 674, 616, 100, 36, 190)
+		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 798, 616, 90, 36, 191)
 		return 0
 	case WM_COMMAND:
 		switch loword(wParam) {
@@ -100,56 +135,75 @@ func checked(hwnd HWND, id int) bool {
 	r, _, _ := pSendMessage.Call(uintptr(getDlgItem(hwnd, id)), BM_GETCHECK, 0, 0)
 	return r == BST_CHECKED
 }
-func saveSettingsFromWindow(hwnd HWND) {
-	s := &app.store.Settings
-	salary := parseFloatText(getDlgItem(hwnd, 100))
-	if salary <= 0 {
-		msgBox(hwnd, "设置有误", "月薪必须大于 0。", MB_OK|MB_ICONWARNING)
-		return
+func selectedChoice(hwnd HWND, id int, choices []settingChoice) string {
+	r, _, _ := pSendMessage.Call(uintptr(getDlgItem(hwnd, id)), CB_GETCURSEL, 0, 0)
+	if int(r) < 0 || int(r) >= len(choices) {
+		return ""
 	}
-	for _, id := range []int{102, 103, 104, 105} {
-		if _, err := hmToMinutes(getText(getDlgItem(hwnd, id))); err != nil {
-			msgBox(hwnd, "设置有误", "上下班/午休时间请使用 HH:MM 格式。", MB_OK|MB_ICONWARNING)
+	return choices[int(r)].Key
+}
+func saveSettingsFromWindow(hwnd HWND) {
+	next := app.store.Settings
+	fail := func(err error) { msgBox(hwnd, "设置有误", err.Error(), MB_OK|MB_ICONWARNING) }
+	for _, item := range []struct {
+		id    int
+		label string
+		dest  *float64
+	}{
+		{100, "月薪", &next.MonthlySalary}, {101, "加班工资基数", &next.OvertimeBaseSalary}, {108, "月计薪天数", &next.MonthlyWorkDays}, {123, "挂件不透明度", &next.FloatingOpacity},
+	} {
+		v, err := strconv.ParseFloat(strings.TrimSpace(getText(getDlgItem(hwnd, item.id))), 64)
+		if err != nil {
+			fail(fmt.Errorf("%s请输入有效数字。", item.label))
 			return
 		}
+		*item.dest = v
 	}
-	pd := parseIntText(getDlgItem(hwnd, 106))
-	if pd < 1 || pd > 31 {
-		msgBox(hwnd, "设置有误", "发薪日请输入 1-31。", MB_OK|MB_ICONWARNING)
+	next.FloatingOpacity /= 100
+	next.WorkStart = strings.TrimSpace(getText(getDlgItem(hwnd, 102)))
+	next.WorkEnd = strings.TrimSpace(getText(getDlgItem(hwnd, 103)))
+	next.LunchStart = strings.TrimSpace(getText(getDlgItem(hwnd, 104)))
+	next.LunchEnd = strings.TrimSpace(getText(getDlgItem(hwnd, 105)))
+	pd, err := strconv.Atoi(strings.TrimSpace(getText(getDlgItem(hwnd, 106))))
+	if err != nil {
+		fail(fmt.Errorf("发薪日请输入 1-31 的整数。"))
 		return
 	}
-	s.MonthlySalary = salary
-	s.OvertimeBaseSalary = parseFloatText(getDlgItem(hwnd, 101))
-	s.WorkStart = getText(getDlgItem(hwnd, 102))
-	s.WorkEnd = getText(getDlgItem(hwnd, 103))
-	s.LunchStart = getText(getDlgItem(hwnd, 104))
-	s.LunchEnd = getText(getDlgItem(hwnd, 105))
-	s.PaydayDay = pd
-	s.CumulativeWorkStartDate = strings.TrimSpace(getText(getDlgItem(hwnd, 107)))
-	s.WorkOnSaturday = checked(hwnd, 110)
-	s.WorkOnSunday = checked(hwnd, 111)
-	s.UseMainlandHolidayCalendar = checked(hwnd, 112)
-	s.AutoStart = checked(hwnd, 113)
-	s.StartHidden = checked(hwnd, 114)
-	s.ShowFloatingOnAutoStart = checked(hwnd, 115)
-	s.ReminderEnabled = checked(hwnd, 116)
-	s.FloatingShowEarned = checked(hwnd, 117)
-	s.FloatingShowCountdown = checked(hwnd, 118)
-	s.FloatingShowProgress = checked(hwnd, 119)
-	if checked(hwnd, 121) {
-		s.FloatingMode = "Taskbar"
-	} else {
-		s.FloatingMode = "Screen"
+	next.PaydayDay = pd
+	next.CumulativeWorkStartDate = strings.TrimSpace(getText(getDlgItem(hwnd, 107)))
+	minutes, err := hmToMinutes(getText(getDlgItem(hwnd, 122)))
+	if err != nil {
+		fail(fmt.Errorf("晚间提醒时间请使用 HH:MM 格式。"))
+		return
 	}
-	_ = app.store.SaveAll()
-	if err := setAutoStart(s.AutoStart); err != nil {
-		msgBox(hwnd, "开机启动设置失败", err.Error(), MB_OK|MB_ICONWARNING)
+	next.ReminderEveningHour, next.ReminderEveningMinute = minutes/60, minutes%60
+	next.FloatingSize = selectedChoice(hwnd, 124, floatingSizeChoices)
+	next.FloatingPalette = selectedChoice(hwnd, 125, floatingPaletteChoices)
+	next.WorkOnSaturday, next.WorkOnSunday = checked(hwnd, 110), checked(hwnd, 111)
+	next.UseMainlandHolidayCalendar = checked(hwnd, 112)
+	next.AutoStart, next.StartHidden = checked(hwnd, 113), checked(hwnd, 114)
+	next.ShowFloatingOnAutoStart, next.ShowFloatingOnStartup = checked(hwnd, 115), checked(hwnd, 120)
+	next.ReminderEnabled = checked(hwnd, 116)
+	next.FloatingShowEarned, next.FloatingShowCountdown, next.FloatingShowProgress = checked(hwnd, 117), checked(hwnd, 118), checked(hwnd, 119)
+	next.FloatingShowPhrase, next.FloatingCompact = checked(hwnd, 126), checked(hwnd, 127)
+	next.FloatingMode = "Screen"
+	if checked(hwnd, 121) {
+		next.FloatingMode = "Taskbar"
+	}
+	if err := app.store.UpdateSettings(next, time.Now()); err != nil {
+		fail(err)
+		return
+	}
+	if err := applyAutoStart(next.AutoStart); err != nil {
+		msgBox(hwnd, "开机启动设置失败", "其他设置已保存，但开机启动未更新："+err.Error(), MB_OK|MB_ICONWARNING)
+		return
 	}
 	pDestroyWindow.Call(uintptr(hwnd))
 	invalidate(app.main)
-	if app.floating != 0 {
-		invalidate(app.floating)
+	if calendarWnd != 0 {
+		invalidate(calendarWnd)
 	}
+	applyFloatingSettings()
 }
 
 func openCalendarWindow() {
@@ -159,7 +213,7 @@ func openCalendarWindow() {
 		return
 	}
 	style := uintptr(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU)
-	r, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16(calendarClass))), uintptr(unsafe.Pointer(u16("劳动日历 · 双击日期可记录"))), style, 350, 130, 850, 690, uintptr(app.main), 0, uintptr(app.hInst), 0)
+	r, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16(calendarClass))), uintptr(unsafe.Pointer(u16("劳动日历 · 单击日期可记录"))), style, 350, 130, 850, 690, uintptr(app.main), 0, uintptr(app.hInst), 0)
 	calendarWnd = HWND(r)
 	show(calendarWnd, SW_SHOW)
 }
@@ -197,6 +251,8 @@ func paintCalendar(hwnd HWND) {
 	fill(HDC(hdc), cr, p.Bg)
 	app.calendarHits = app.calendarHits[:0]
 	m := app.calendarMonth
+	balance := app.store.AnnualLeaveBalance(time.Now())
+	drawText(HDC(hdc), annualLeaveText(balance), RECT{28, 578, 790, 606}, 12, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	drawText(HDC(hdc), fmt.Sprintf("%d 年 %d 月", m.Year(), m.Month()), RECT{250, 22, 590, 58}, 25, FW_BOLD, p.Text, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 	calButton(HDC(hdc), "prev", "‹ 上月", RECT{28, 22, 110, 58}, p)
 	calButton(HDC(hdc), "next", "下月 ›", RECT{700, 22, 782, 58}, p)
@@ -290,13 +346,19 @@ func handleCalendarClick(x, y int) {
 				app.calendarMonth = time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, time.Local)
 				invalidate(calendarWnd)
 			case "import":
-				if requirePro("导入节假日配置") { importHolidayUI() }
+				if requirePro("导入节假日配置") {
+					importHolidayUI()
+				}
 			case "export":
-				if requirePro("导出节假日模板") { exportHolidayUI() }
+				if requirePro("导出节假日模板") {
+					exportHolidayUI()
+				}
 			default:
 				if strings.HasPrefix(h.ID, "day:") {
 					d, _ := time.ParseInLocation("2006-01-02", strings.TrimPrefix(h.ID, "day:"), time.Local)
-					if requirePro("记录加班 / 年假 / 补休 / 请假") { openDayEdit(d) }
+					if requirePro("记录加班 / 年假 / 补休 / 请假") {
+						openDayEdit(d)
+					}
 				}
 			}
 			return

@@ -8,15 +8,7 @@ import (
 	"unsafe"
 )
 
-func floatingSize() (int, int) {
-	switch app.store.Settings.FloatingSize {
-	case "Small":
-		return 260, 78
-	case "Large":
-		return 420, 126
-	}
-	return 340, 102
-}
+func floatingSize() (int, int) { return floatingDimensions(app.store.Settings) }
 func toggleFloating(forceShow bool) {
 	if app.floating != 0 {
 		if forceShow {
@@ -41,11 +33,7 @@ func toggleFloating(forceShow bool) {
 	if app.floating == 0 {
 		return
 	}
-	alpha := byte(app.store.Settings.FloatingOpacity * 255)
-	if alpha < 100 {
-		alpha = 100
-	}
-	pSetLayeredWindowAttributes.Call(uintptr(app.floating), 0, uintptr(alpha), LWA_ALPHA)
+	applyFloatingSettings()
 	show(app.floating, SW_SHOW)
 }
 
@@ -81,8 +69,10 @@ func floatWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_DESTROY:
 		var wr RECT
 		pGetWindowRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&wr)))
-		app.store.Settings.FloatingLeft = int(wr.Left)
-		app.store.Settings.FloatingTop = int(wr.Top)
+		if app.store.Settings.FloatingMode != "Taskbar" {
+			app.store.Settings.FloatingLeft = int(wr.Left)
+			app.store.Settings.FloatingTop = int(wr.Top)
+		}
 		_ = app.store.SaveAll()
 		app.floating = 0
 		return 0
@@ -105,6 +95,28 @@ func floatPalette() (uint32, uint32, uint32) {
 	}
 	return p.Lavender, p.Text, p.Accent
 }
+func applyFloatingSettings() {
+	if app.floating == 0 {
+		return
+	}
+	w, h := floatingSize()
+	var wr RECT
+	pGetWindowRect.Call(uintptr(app.floating), uintptr(unsafe.Pointer(&wr)))
+	x, y := int(wr.Left), int(wr.Top)
+	if app.store.Settings.FloatingMode == "Taskbar" {
+		var wa RECT
+		pSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
+		x, y = int(wa.Right)-w-18, int(wa.Bottom)-h-12
+	}
+	move(app.floating, x, y, w, h)
+	alpha := byte(app.store.Settings.FloatingOpacity * 255)
+	if alpha < 100 {
+		alpha = 100
+	}
+	pSetLayeredWindowAttributes.Call(uintptr(app.floating), 0, uintptr(alpha), LWA_ALPHA)
+	invalidate(app.floating)
+}
+
 func paintFloating(hwnd HWND) {
 	var ps PAINTSTRUCT
 	hdc, _, _ := pBeginPaint.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&ps)))
@@ -119,37 +131,50 @@ func paintFloating(hwnd HWND) {
 	now := time.Now()
 	earned, progress := app.store.TodayEarned(now)
 	info := app.store.DayInfo(now)
-	x := int32(16)
+	set := app.store.Settings
+	top, detail := "", ""
 	if info.IsRestDay {
-		drawText(HDC(hdc), "今天不用打工", RECT{x, 8, r.Right - 45, 40}, 20, FW_BOLD, fg, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		next := app.store.NextWorkDay(now)
-		drawText(HDC(hdc), "下次上班 "+formatDateShort(next), RECT{x, 40, r.Right - 20, 69}, 12, FW_NORMAL, currentPalette().Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		top = "今天不用打工"
+		detail = "下次上班 " + formatDateShort(app.store.NextWorkDay(now))
 	} else {
-		top := ""
-		if app.store.Settings.FloatingShowEarned {
-			top = fmt.Sprintf("¥%.0f", earned)
+		if set.FloatingShowEarned {
+			top = fmt.Sprintf("≈¥%.0f", earned)
 		}
-		if app.store.Settings.FloatingShowProgress {
+		if set.FloatingShowProgress {
 			if top != "" {
-				top += "  ·  "
+				top += " · "
 			}
 			top += fmt.Sprintf("%d%%", int(progress*100))
 		}
 		if top == "" {
 			top = "打工搭子"
 		}
-		drawText(HDC(hdc), top, RECT{x, 6, r.Right - 45, 39}, 20, FW_BOLD, fg, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		if app.store.Settings.FloatingShowCountdown {
+		if set.FloatingShowCountdown {
 			a, b := workCountdown(now)
-			drawText(HDC(hdc), a+"  "+b, RECT{x, 39, r.Right - 16, 67}, 12, FW_NORMAL, currentPalette().Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+			detail = a + " " + b
 		}
-		if app.store.Settings.FloatingShowProgress {
-			bar := RECT{x, r.Bottom - 12, r.Right - 16, r.Bottom - 7}
-			fill(HDC(hdc), bar, currentPalette().Surface)
-			if progress > 0 {
-				bar.Right = bar.Left + int32(float64(bar.Right-bar.Left)*progress)
-				fill(HDC(hdc), bar, ac)
-			}
+	}
+	size, detailY, phraseY := 20, int32(39), int32(67)
+	if set.FloatingCompact {
+		size, detailY, phraseY = 15, 26, 49
+	}
+	drawText(HDC(hdc), top, RECT{16, 4, r.Right - 42, detailY}, size, FW_BOLD, fg, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	drawText(HDC(hdc), detail, RECT{16, detailY, r.Right - 16, phraseY}, 11, FW_NORMAL, currentPalette().Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	if set.FloatingShowPhrase {
+		phrase := "每一分钟都算数。"
+		if info.IsRestDay {
+			phrase = "请珍惜这短暂的自由。"
+		} else if progress >= 1 {
+			phrase = "今天辛苦了。"
+		}
+		drawText(HDC(hdc), phrase, RECT{16, phraseY, r.Right - 16, phraseY + 22}, 11, FW_NORMAL, currentPalette().Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+	if set.FloatingShowProgress && !info.IsRestDay {
+		bar := RECT{16, r.Bottom - 10, r.Right - 16, r.Bottom - 5}
+		fill(HDC(hdc), bar, currentPalette().Surface)
+		bar.Right = bar.Left + int32(float64(bar.Right-bar.Left)*progress)
+		if progress > 0 {
+			fill(HDC(hdc), bar, ac)
 		}
 	}
 	drawText(HDC(hdc), "×", RECT{r.Right - 36, 4, r.Right - 6, 32}, 17, FW_BOLD, currentPalette().Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)

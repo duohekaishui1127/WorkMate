@@ -39,4 +39,11 @@ if errorlevel 1 exit /b 1
 go build -trimpath -buildvcs=false -ldflags="-H windowsgui -s -w" -o dist\WorkMate.exe .
 if errorlevel 1 exit /b 1
 
+copy /y assets\commerce.json dist\commerce.json >nul
+if errorlevel 1 exit /b 1
+copy /y assets\payment_qr.png dist\payment_qr.png >nul
+if errorlevel 1 exit /b 1
+copy /y WorkMate.ico dist\WorkMate.ico >nul
+if errorlevel 1 exit /b 1
+
 echo [OK] dist\WorkMate.exe

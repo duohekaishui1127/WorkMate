@@ -1,30 +1,33 @@
 # WorkMate V8 Commerce
 
-这是 WorkMate 的商业化基础版本，基于 V7.1.2 Native 重构。
+Windows 原生桌面打工助手，使用 Go 与 Win32/GDI，实现工资进度、下班倒计时、工时与加班记录、劳动日历、年假估算余额、桌面挂件、本地提醒及 PNG 分享报告。
 
-## 新增
+## 当前行为
 
-- 24 小时完整 Pro 试用
-- Free / Pro 功能分层
-- 试用到期自动弹出购买窗口
-- 个人收款码入口（`payment_qr.png`）
-- 设备绑定永久授权
-- Ed25519 数字签名激活码
-- 试用状态文件 + 注册表双锚点
-- 时钟回拨检测
-- 不把私钥放进客户端
-- 继续兼容标准 Inno Setup / Authenticode 发布流程
+- 今日收入按设置的工作日程估算，月/年收入按记录工时估算。
+- 周/月/年统计截至今日，排除未来日期；最长连续工作按实际工时记录计算。
+- 年假显示估算额度、已用、未来预留与可安排天数。
+- 手动隐藏启动和登录静默启动分别生效，可分别设置是否显示挂件。
+- 挂件尺寸、配色、不透明度、短句与紧凑模式均可在设置中调整并立即生效。
+- 晚间提醒按设置的小时和分钟触发。
+- 24 小时自然时间的完整 Pro 试用，到期每次启动最多自动提示一次；静默启动时不会立即弹购买窗口。
+- Free / Pro 分层与设备绑定永久授权，激活码使用 Ed25519 签名。
+- 所有工资、加班、请假、报告数据保存在本机。
 
-## 正式发布前
+## 购买配置与发布
 
-1. 替换 `assets/payment_qr.png` 为你的收款码。
-2. 运行 `scripts\init-license-keys.cmd` 生成你自己的授权主密钥。
-3. 修改购买窗口价格/联系方式文案（默认示例 ¥19.9）。
-4. `scripts\build-app.cmd`
-5. 使用代码签名证书执行 `scripts\sign-release.cmd`
+1. 编辑 `assets/commerce.json`，填写正式价格和开发者联系方式。
+2. 替换 `assets/payment_qr.png` 为自己的有效 PNG 收款码。
+3. 为正式发行准备自己的授权密钥，详见 `COMMERCE.md`。
+4. 准备完成后把购买配置的 `enabled` 设置为 `true`。
+5. 执行 `scripts\build-app.cmd`，再按 `SIGNING.md` 构建和签名安装包。
 
-详见：
+应用从 WorkMate.exe 同目录读取 `commerce.json` 和 `payment_qr.png`。构建脚本与安装器会复制这两个文件。默认购买入口关闭；缺少价格、联系方式或有效收款码，以及使用仓库占位图片时，显示“购买入口尚未开放”。入口关闭不影响输入已有激活码。
 
-- `COMMERCE.md`
-- `SECURITY-COMMERCE.md`
-- `SIGNING.md`
+付款仍由开发者人工确认并签发激活码；自动支付解锁尚未接入。
+
+## 测试
+
+Windows：`scripts\test.cmd`。核心与原生窗口测试范围详见 `TESTING.md`。
+
+其他说明：`COMMERCE.md`、`SECURITY-COMMERCE.md`、`RELEASE.md`、`SIGNING.md`。

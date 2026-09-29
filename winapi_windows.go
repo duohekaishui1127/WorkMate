@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -114,6 +115,11 @@ const (
 	WS_VISIBLE           = 0x10000000
 	WS_CHILD             = 0x40000000
 	WS_TABSTOP           = 0x00010000
+	WS_VSCROLL           = 0x00200000
+	CBS_DROPDOWNLIST     = 0x0003
+	CB_ADDSTRING         = 0x0143
+	CB_GETCURSEL         = 0x0147
+	CB_SETCURSEL         = 0x014e
 	WS_BORDER            = 0x00800000
 	WS_POPUP             = 0x80000000
 	WS_EX_TOOLWINDOW     = 0x00000080
@@ -126,8 +132,8 @@ const (
 	BST_CHECKED          = 1
 	ES_AUTOHSCROLL       = 0x0080
 	ES_NUMBER            = 0x2000
-	EM_SETREADONLY      = 0x00CF
-	EM_SETSEL           = 0x00B1
+	EM_SETREADONLY       = 0x00CF
+	EM_SETSEL            = 0x00B1
 	SW_HIDE              = 0
 	SW_SHOWNORMAL        = 1
 	SW_SHOW              = 5
@@ -220,8 +226,8 @@ const (
 	SRCCOPY              = 0x00CC0020
 	WM_SETFONT           = 0x0030
 	ERROR_ALREADY_EXISTS = 183
-	CF_UNICODETEXT = 13
-	GMEM_MOVEABLE = 0x0002
+	CF_UNICODETEXT       = 13
+	GMEM_MOVEABLE        = 0x0002
 )
 
 var (
@@ -308,6 +314,10 @@ var (
 	pGlobalAlloc                = kernel32.NewProc("GlobalAlloc")
 	pGlobalLock                 = kernel32.NewProc("GlobalLock")
 	pGlobalUnlock               = kernel32.NewProc("GlobalUnlock")
+	pGlobalFree                 = kernel32.NewProc("GlobalFree")
+	pIsDialogMessage            = user32.NewProc("IsDialogMessageW")
+	pRtlMoveMemory              = syscall.NewLazyDLL("ntdll.dll").NewProc("RtlMoveMemory")
+	pGdiFlush                   = gdi32.NewProc("GdiFlush")
 )
 
 func u16(s string) *uint16    { p, _ := syscall.UTF16PtrFromString(s); return p }
@@ -382,3 +392,56 @@ func chooseFile(owner HWND, save bool, title, filter, defExt, initial string) (s
 	return syscall.UTF16ToString(buf), true
 }
 
+func createOwnedWindow(class, title string, clientW, clientH int, owner HWND) HWND {
+	style := uintptr(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU)
+	r := RECT{0, 0, int32(clientW), int32(clientH)}
+	pAdjustWindowRectEx.Call(uintptr(unsafe.Pointer(&r)), style, 0, 0)
+	var wa RECT
+	pSystemParametersInfo.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&wa)), 0)
+	w, h := int(r.Right-r.Left), int(r.Bottom-r.Top)
+	x, y := int(wa.Left)+(int(wa.Right-wa.Left)-w)/2, int(wa.Top)+(int(wa.Bottom-wa.Top)-h)/2
+	if x < int(wa.Left) {
+		x = int(wa.Left)
+	}
+	if y < int(wa.Top) {
+		y = int(wa.Top)
+	}
+	hwnd, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16(class))), uintptr(unsafe.Pointer(u16(title))), style, uintptr(x), uintptr(y), uintptr(w), uintptr(h), uintptr(owner), 0, uintptr(app.hInst), 0)
+	return HWND(hwnd)
+}
+
+func copyTextToClipboard(owner HWND, text string) error {
+	data, err := syscall.UTF16FromString(text)
+	if err != nil {
+		return err
+	}
+	ok, _, _ := pOpenClipboard.Call(uintptr(owner))
+	if ok == 0 {
+		return fmt.Errorf("剪贴板正忙，请稍后重试。")
+	}
+	defer pCloseClipboard.Call()
+	mem, _, _ := pGlobalAlloc.Call(GMEM_MOVEABLE, uintptr(len(data)*2))
+	if mem == 0 {
+		return fmt.Errorf("无法分配剪贴板内存。")
+	}
+	transferred := false
+	defer func() {
+		if !transferred {
+			pGlobalFree.Call(mem)
+		}
+	}()
+	ptr, _, _ := pGlobalLock.Call(mem)
+	if ptr == 0 {
+		return fmt.Errorf("无法写入剪贴板。")
+	}
+	pRtlMoveMemory.Call(ptr, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)*2))
+	pGlobalUnlock.Call(mem)
+	if ok, _, _ := pEmptyClipboard.Call(); ok == 0 {
+		return fmt.Errorf("无法清空剪贴板。")
+	}
+	if ok, _, _ := pSetClipboardData.Call(CF_UNICODETEXT, mem); ok == 0 {
+		return fmt.Errorf("无法复制到剪贴板。")
+	}
+	transferred = true
+	return nil
+}
