@@ -1,4 +1,4 @@
-# WorkMate V7.1.2 正式发布流程
+# WorkMate V8 正式发布流程
 
 ## 1. 构建主程序
 
@@ -26,7 +26,7 @@ scripts\build-installer.cmd
 得到：
 
 ```text
-dist\WorkMate-Setup-0.7.1.2.exe
+dist\WorkMate-Setup-0.8.0.exe
 ```
 
 这个安装器使用固定 AppId，后续 0.7.2 / 0.8.0 会被 Windows 视为同一个产品并进行覆盖升级。

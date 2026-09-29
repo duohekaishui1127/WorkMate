@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const appVersion = "0.7.1.1"
+const appVersion = "0.8.0"
 const appDisplayName = "打工搭子 WorkMate"
 
 type Settings struct {

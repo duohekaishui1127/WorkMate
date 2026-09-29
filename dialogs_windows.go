@@ -62,7 +62,7 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			id    int
 			label string
 			v     bool
-		}{{110, "周六通常上班", app.store.Settings.WorkOnSaturday}, {111, "周日通常上班", app.store.Settings.WorkOnSunday}, {112, "使用中国大陆法定节假日/调休", app.store.Settings.UseMainlandHolidayCalendar}, {113, "开机自动静默启动", app.store.Settings.AutoStart}, {114, "手动启动也先隐藏到托盘", app.store.Settings.StartHidden}, {115, "开机后显示桌面挂件", app.store.Settings.ShowFloatingOnAutoStart}, {116, "启用本地智能提醒", app.store.Settings.ReminderEnabled}, {117, "挂件显示今日收入", app.store.Settings.FloatingShowEarned}, {118, "挂件显示倒计时", app.store.Settings.FloatingShowCountdown}, {119, "挂件显示进度", app.store.Settings.FloatingShowProgress}, {121, "挂件贴任务栏上沿", app.store.Settings.FloatingMode == "Taskbar"}}
+		}{{110, "周六通常上班", app.store.Settings.WorkOnSaturday}, {111, "周日通常上班", app.store.Settings.WorkOnSunday}, {112, "使用中国大陆法定节假日/调休", app.store.Settings.UseMainlandHolidayCalendar}, {113, "开机自动静默启动", app.store.Settings.AutoStart}, {114, "手动启动也先隐藏到托盘", app.store.Settings.StartHidden}, {115, "开机后显示桌面挂件", app.store.Settings.ShowFloatingOnAutoStart}, {116, "启用本地智能提醒（Pro）", app.store.Settings.ReminderEnabled}, {117, "挂件显示今日收入", app.store.Settings.FloatingShowEarned}, {118, "挂件显示倒计时", app.store.Settings.FloatingShowCountdown}, {119, "挂件显示进度", app.store.Settings.FloatingShowProgress}, {121, "挂件贴任务栏上沿", app.store.Settings.FloatingMode == "Taskbar"}}
 		for _, c := range checks {
 			b := createCtl(hwnd, "BUTTON", c.label, BS_AUTOCHECKBOX|WS_TABSTOP, 24, y, 510, 26, c.id)
 			if c.v {
@@ -290,13 +290,13 @@ func handleCalendarClick(x, y int) {
 				app.calendarMonth = time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, time.Local)
 				invalidate(calendarWnd)
 			case "import":
-				importHolidayUI()
+				if requirePro("导入节假日配置") { importHolidayUI() }
 			case "export":
-				exportHolidayUI()
+				if requirePro("导出节假日模板") { exportHolidayUI() }
 			default:
 				if strings.HasPrefix(h.ID, "day:") {
 					d, _ := time.ParseInLocation("2006-01-02", strings.TrimPrefix(h.ID, "day:"), time.Local)
-					openDayEdit(d)
+					if requirePro("记录加班 / 年假 / 补休 / 请假") { openDayEdit(d) }
 				}
 			}
 			return

@@ -1,0 +1,1 @@
+8a1c867c3067d11f21a495b41ac3788596482e67d27c2be326387941584fc567  /mnt/data/WorkMate-Windows-V8-Commerce-Source/dist/WorkMate.exe

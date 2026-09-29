@@ -126,6 +126,8 @@ const (
 	BST_CHECKED          = 1
 	ES_AUTOHSCROLL       = 0x0080
 	ES_NUMBER            = 0x2000
+	EM_SETREADONLY      = 0x00CF
+	EM_SETSEL           = 0x00B1
 	SW_HIDE              = 0
 	SW_SHOWNORMAL        = 1
 	SW_SHOW              = 5
@@ -218,6 +220,8 @@ const (
 	SRCCOPY              = 0x00CC0020
 	WM_SETFONT           = 0x0030
 	ERROR_ALREADY_EXISTS = 183
+	CF_UNICODETEXT = 13
+	GMEM_MOVEABLE = 0x0002
 )
 
 var (
@@ -279,6 +283,7 @@ var (
 	pTrackPopupMenu             = user32.NewProc("TrackPopupMenu")
 	pDestroyMenu                = user32.NewProc("DestroyMenu")
 	pShellNotifyIcon            = shell32.NewProc("Shell_NotifyIconW")
+	pShellExecute               = shell32.NewProc("ShellExecuteW")
 	pSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
 	pSystemParametersInfo       = user32.NewProc("SystemParametersInfoW")
 	pSetWindowPos               = user32.NewProc("SetWindowPos")
@@ -296,6 +301,13 @@ var (
 	pCreateMutex                = kernel32.NewProc("CreateMutexW")
 	pGetLastError               = kernel32.NewProc("GetLastError")
 	pCloseHandle                = kernel32.NewProc("CloseHandle")
+	pOpenClipboard              = user32.NewProc("OpenClipboard")
+	pEmptyClipboard             = user32.NewProc("EmptyClipboard")
+	pSetClipboardData           = user32.NewProc("SetClipboardData")
+	pCloseClipboard             = user32.NewProc("CloseClipboard")
+	pGlobalAlloc                = kernel32.NewProc("GlobalAlloc")
+	pGlobalLock                 = kernel32.NewProc("GlobalLock")
+	pGlobalUnlock               = kernel32.NewProc("GlobalUnlock")
 )
 
 func u16(s string) *uint16    { p, _ := syscall.UTF16PtrFromString(s); return p }
@@ -369,3 +381,4 @@ func chooseFile(owner HWND, save bool, title, filter, defExt, initial string) (s
 	}
 	return syscall.UTF16ToString(buf), true
 }
+

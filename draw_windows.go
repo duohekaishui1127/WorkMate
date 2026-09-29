@@ -108,6 +108,11 @@ func paintMain(hwnd HWND) {
 	}
 	button(HDC(hdc), "theme", themeLabel, RECT{878, 34, 978, 78}, p.Surface, p.Text, p.Border)
 	button(HDC(hdc), "settings", "设置", RECT{990, 34, 1072, 78}, p.Lavender, p.Text, p.Border)
+	if app.license != nil {
+		status := app.license.StatusText(now)
+		drawText(HDC(hdc), status, RECT{480, 34, 650, 60}, 12, FW_SEMIBOLD, p.Accent, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		if !app.license.IsPro() { button(HDC(hdc), "buypro", "买断 PRO", RECT{652, 34, 748, 78}, p.Peach, p.Text, p.Border) }
+	}
 	paintHero(HDC(hdc), now, p)
 	paintMetrics(HDC(hdc), now, p)
 	paintSummaries(HDC(hdc), now, p)
@@ -262,6 +267,11 @@ func paintActions(hdc HDC, p palette) {
 		w         int
 		primary   bool
 	}{{"overtime", "开始加班", 118, true}, {"calendar", "劳动日历", 105, false}, {"timeline", "今日时间轴", 118, false}, {"floating", "桌面挂件", 105, false}, {"backup", "备份", 78, false}, {"restore", "恢复", 78, false}}
+	if app.license != nil && !app.license.HasProAccess(time.Now()) {
+		items[2].label = "时间轴 PRO"
+		items[4].label = "备份 PRO"
+		items[5].label = "恢复 PRO"
+	}
 	if app.store.OvertimeRunning() {
 		items[0].label = "结束加班"
 	}
@@ -280,6 +290,7 @@ func paintActions(hdc HDC, p palette) {
 }
 
 func checkReminders(now time.Time) {
+	if app.license != nil && !app.license.HasProAccess(now) { return }
 	if !app.store.Settings.ReminderEnabled {
 		return
 	}

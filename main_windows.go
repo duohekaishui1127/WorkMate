@@ -19,6 +19,7 @@ const calendarClass = "WorkMateV7CalendarWindow"
 const timelineClass = "WorkMateV7TimelineWindow"
 const settingsClass = "WorkMateV7SettingsWindow"
 const dayEditClass = "WorkMateV7DayEditWindow"
+const purchaseClass = "WorkMateV8PurchaseWindow"
 
 const (
 	mainClientW  = 1120
@@ -34,6 +35,7 @@ type hitRect struct {
 }
 type appState struct {
 	store         *Store
+	license       *LicenseManager
 	hInst         HINSTANCE
 	main          HWND
 	floating      HWND
@@ -71,6 +73,7 @@ func main() {
 		return
 	}
 	app.store = st
+	app.license = newLicenseManager(st.DataDir)
 	// Older test builds may have left the Run value pointing at a previous
 	// WorkMate.exe. Repair it on every startup when auto-start is enabled so
 	// the next Windows login cannot launch an old copy alongside this one.
@@ -110,6 +113,9 @@ func main() {
 	}
 	if (!background && st.Settings.ShowFloatingOnStartup) || (background && st.Settings.ShowFloatingOnAutoStart) {
 		toggleFloating(true)
+	}
+	if !background && app.license != nil && !app.license.HasProAccess(time.Now()) {
+		openPurchaseWindow()
 	}
 
 	var msg MSG
@@ -186,6 +192,7 @@ func registerWindowClasses() {
 	registerClass(timelineClass, syscall.NewCallback(timelineWndProc))
 	registerClass(settingsClass, syscall.NewCallback(settingsWndProc))
 	registerClass(dayEditClass, syscall.NewCallback(dayEditWndProc))
+	registerClass(purchaseClass, syscall.NewCallback(purchaseWndProc))
 }
 
 func createMainWindow() HWND {
@@ -209,6 +216,7 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		if wParam == timerMain {
 			now := time.Now()
 			app.store.Tick(now)
+			app.license.Tick(now)
 			checkReminders(now)
 			invalidate(hwnd)
 			if app.floating != 0 {
@@ -293,6 +301,8 @@ func handleMainClick(x, y int) {
 			switch h.ID {
 			case "panic":
 				panicHide()
+			case "buypro":
+				openPurchaseWindow()
 			case "theme":
 				if app.store.Settings.Theme == "Dark" {
 					app.store.Settings.Theme = "Light"
@@ -316,19 +326,19 @@ func handleMainClick(x, y int) {
 			case "calendar":
 				openCalendarWindow()
 			case "timeline":
-				openTimelineWindow()
+				if requirePro("今日工作时间轴") { openTimelineWindow() }
 			case "dailyshare":
-				saveShareCard("daily")
+				if requirePro("今日分享卡") { saveShareCard("daily") }
 			case "monthshare":
-				saveShareCard("month")
+				if requirePro("月度打工报告") { saveShareCard("month") }
 			case "yearshare":
-				saveShareCard("year")
+				if requirePro("年度打工报告") { saveShareCard("year") }
 			case "floating":
 				toggleFloating(false)
 			case "backup":
-				backupFromUI()
+				if requirePro("备份与恢复") { backupFromUI() }
 			case "restore":
-				restoreFromUI()
+				if requirePro("备份与恢复") { restoreFromUI() }
 			}
 			return
 		}

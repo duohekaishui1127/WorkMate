@@ -60,7 +60,7 @@ scripts\sign-release.cmd
 ```text
 1. 签名 dist\WorkMate.exe
 2. 用已签名的 WorkMate.exe 构建 Inno Setup 安装包
-3. 签名 WorkMate-Setup-0.7.1.2.exe
+3. 签名 WorkMate-Setup-0.8.0.exe
 4. 对两个文件执行 signtool verify
 ```
 

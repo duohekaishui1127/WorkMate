@@ -1,5 +1,5 @@
 #define MyAppName "打工搭子 WorkMate"
-#define MyAppVersion "0.7.1.2"
+#define MyAppVersion "0.8.0"
 #define MyAppPublisher "WorkMate"
 #define MyAppExeName "WorkMate.exe"
 
@@ -31,7 +31,7 @@ AppMutex=Local\WorkMate.SingleInstance,Local\WorkMateV7NativeSingleInstance
 SetupMutex=WorkMate.Setup.SingleInstance
 SetupLogging=yes
 AllowNoIcons=yes
-VersionInfoVersion=0.7.1.2
+VersionInfoVersion=0.8.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} 安装程序
 VersionInfoProductName={#MyAppName}
@@ -47,6 +47,7 @@ Source: "..\dist\WorkMate.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\WorkMate.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LEGAL-NOTES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\payment_qr.png"; DestDir: "{app}"; DestName: "payment_qr.png"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\WorkMate"; Filename: "{app}\WorkMate.exe"; WorkingDir: "{app}"; IconFilename: "{app}\WorkMate.ico"
