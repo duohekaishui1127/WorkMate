@@ -41,7 +41,7 @@ func TestWindowsUISettingsAndReports(t *testing.T) {
 	pGetClientRect.Call(uintptr(settingsWnd), uintptr(unsafe.Pointer(&client)))
 	var origin POINT
 	user32.NewProc("ClientToScreen").Call(uintptr(settingsWnd), uintptr(unsafe.Pointer(&origin)))
-	ids := []int{100, 101, 102, 103, 104, 105, 106, 107, 108, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 190, 191}
+	ids := []int{100, 101, 102, 103, 104, 105, 106, 107, 108, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 190, 191}
 	for _, id := range ids {
 		ctl := getDlgItem(settingsWnd, id)
 		if ctl == 0 {

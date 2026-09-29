@@ -46,6 +46,9 @@ func validateSettings(s Settings, now time.Time) error {
 	if !finite(s.FloatingOpacity) || s.FloatingOpacity < 0.4 || s.FloatingOpacity > 1 {
 		return errors.New("挂件不透明度请输入 40-100%。")
 	}
+	if s.FloatingMode != "Screen" && s.FloatingMode != "Taskbar" && s.FloatingMode != "TaskbarEmbed" {
+		return errors.New("请选择挂件位置。")
+	}
 	if s.FloatingSize != "Small" && s.FloatingSize != "Medium" && s.FloatingSize != "Large" {
 		return errors.New("请选择挂件尺寸。")
 	}

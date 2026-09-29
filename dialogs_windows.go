@@ -28,6 +28,7 @@ func createCtl(parent HWND, class, text string, style uintptr, x, y, w, h, id in
 
 type settingChoice struct{ Key, Label string }
 
+var floatingModeChoices = []settingChoice{{"Screen", "桌面悬浮"}, {"Taskbar", "任务栏上沿"}, {"TaskbarEmbed", "底部任务栏内部"}}
 var floatingSizeChoices = []settingChoice{{"Small", "小"}, {"Medium", "中"}, {"Large", "大"}}
 var floatingPaletteChoices = []settingChoice{{"Lavender", "薰衣草"}, {"Peach", "杏色"}, {"Mint", "薄荷"}, {"Pink", "粉色"}, {"Sky", "天空蓝"}}
 var applyAutoStart = setAutoStart
@@ -96,7 +97,6 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			{116, 478, 336, "启用本地智能提醒（Pro）", s.ReminderEnabled}, {117, 478, 366, "挂件显示今日估算收入", s.FloatingShowEarned},
 			{118, 478, 396, "挂件显示倒计时", s.FloatingShowCountdown}, {119, 478, 426, "挂件显示进度", s.FloatingShowProgress},
 			{126, 478, 456, "挂件显示短句", s.FloatingShowPhrase}, {127, 478, 486, "挂件使用紧凑模式", s.FloatingCompact},
-			{121, 478, 516, "挂件贴任务栏上沿", s.FloatingMode == "Taskbar"},
 			{128, 478, 546, "靠边自动隐藏，鼠标靠近展开", s.FloatingAutoHide},
 			{129, 478, 576, "挂件始终置顶", s.FloatingTopmost},
 		}
@@ -106,12 +106,19 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 				pSendMessage.Call(uintptr(ctl), BM_SETCHECK, BST_CHECKED, 0)
 			}
 		}
+		combo(516, "挂件位置", 121, floatingModeChoices, s.FloatingMode)
+		updateFloatingModeControls(hwnd)
+		createCtl(hwnd, "STATIC", "任务栏内嵌随任务栏显示；空位不足时自动贴上沿。", 0, 24, 634, 410, 20, 130)
 		createCtl(hwnd, "STATIC", "今日收入按日程估算；报告收入按记录工时估算。年假额度按参加工作日期估算。\r\n拖动挂件靠近屏幕边缘即可吸附。\r\nCtrl+Alt+Q 或右键挂件可立即隐藏全部窗口。", 0, 24, 530, 410, 102, 0)
 		createCtl(hwnd, "BUTTON", "保存设置", BS_PUSHBUTTON|WS_TABSTOP, 674, 616, 100, 36, 190)
 		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 798, 616, 90, 36, 191)
 		return 0
 	case WM_COMMAND:
 		switch loword(wParam) {
+		case 121:
+			if hiword(wParam) == 1 {
+				updateFloatingModeControls(hwnd)
+			} // CBN_SELCHANGE
 		case 190:
 			saveSettingsFromWindow(hwnd)
 		case 191:
@@ -131,6 +138,16 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	}
 	r, _, _ := pDefWindowProc.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
 	return r
+}
+
+func updateFloatingModeControls(hwnd HWND) {
+	enabled := uintptr(1)
+	if selectedChoice(hwnd, 121, floatingModeChoices) == "TaskbarEmbed" {
+		enabled = 0
+	}
+	for _, id := range []int{126, 127, 128, 129} {
+		pEnableWindow.Call(uintptr(getDlgItem(hwnd, id)), enabled)
+	}
 }
 
 func checked(hwnd HWND, id int) bool {
@@ -189,10 +206,7 @@ func saveSettingsFromWindow(hwnd HWND) {
 	next.FloatingShowEarned, next.FloatingShowCountdown, next.FloatingShowProgress = checked(hwnd, 117), checked(hwnd, 118), checked(hwnd, 119)
 	next.FloatingShowPhrase, next.FloatingCompact = checked(hwnd, 126), checked(hwnd, 127)
 	next.FloatingAutoHide, next.FloatingTopmost = checked(hwnd, 128), checked(hwnd, 129)
-	next.FloatingMode = "Screen"
-	if checked(hwnd, 121) {
-		next.FloatingMode = "Taskbar"
-	}
+	next.FloatingMode = selectedChoice(hwnd, 121, floatingModeChoices)
 	if err := app.store.UpdateSettings(next, time.Now()); err != nil {
 		fail(err)
 		return

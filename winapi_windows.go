@@ -293,6 +293,7 @@ var (
 	pRegisterHotKey             = user32.NewProc("RegisterHotKey")
 	pUnregisterHotKey           = user32.NewProc("UnregisterHotKey")
 	pFindWindow                 = user32.NewProc("FindWindowW")
+	pFindWindowEx               = user32.NewProc("FindWindowExW")
 	pSendMessage                = user32.NewProc("SendMessageW")
 	pPostMessage                = user32.NewProc("PostMessageW")
 	pSetForegroundWindow        = user32.NewProc("SetForegroundWindow")
@@ -300,6 +301,11 @@ var (
 	pIsWindowVisible            = user32.NewProc("IsWindowVisible")
 	pGetCursorPos               = user32.NewProc("GetCursorPos")
 	pGetWindowRect              = user32.NewProc("GetWindowRect")
+	pIsWindow                   = user32.NewProc("IsWindow")
+	pGetClassName               = user32.NewProc("GetClassNameW")
+	pEnumChildWindows           = user32.NewProc("EnumChildWindows")
+	pClientToScreen             = user32.NewProc("ClientToScreen")
+	pRegisterWindowMessage      = user32.NewProc("RegisterWindowMessageW")
 	pMonitorFromWindow          = user32.NewProc("MonitorFromWindow")
 	pGetMonitorInfo             = user32.NewProc("GetMonitorInfoW")
 	pCreatePopupMenu            = user32.NewProc("CreatePopupMenu")
@@ -463,3 +469,8 @@ func copyTextToClipboard(owner HWND, text string) error {
 	transferred = true
 	return nil
 }
+
+var (
+	pGetWindowDpiAwarenessContext = user32.NewProc("GetWindowDpiAwarenessContext")
+	pSetThreadDpiAwarenessContext = user32.NewProc("SetThreadDpiAwarenessContext")
+)

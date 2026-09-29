@@ -16,32 +16,44 @@ func floatingSize() (int, int) { return floatingDimensions(app.store.Settings) }
 func toggleFloating(forceShow bool) {
 	if app.floating != 0 {
 		visible, _, _ := pIsWindowVisible.Call(uintptr(app.floating))
-		if forceShow || visible == 0 || floatingDockState.collapsed {
-			restoreFloating()
+		if forceShow || !app.floatingWanted || visible == 0 || floatingDockState.collapsed {
+			app.floatingWanted = true
+			applyFloatingSettings()
+			if app.floating != 0 {
+				restoreFloating()
+			}
 			return
 		}
+		app.floatingWanted = false
 		pDestroyWindow.Call(uintptr(app.floating))
 		return
 	}
-	w, h := floatingSize()
-	x, y := app.store.Settings.FloatingLeft, app.store.Settings.FloatingTop
-	wa := floatingWorkArea(0)
-	// Negative coordinates are valid on monitors to the left or above the primary.
-	if app.store.Settings.FloatingMode == "Taskbar" || (x == -1 && y == -1) {
-		x, y = wa.Right-w-18, wa.Bottom-h-12
+	app.floatingWanted = true
+	applyFloatingSettings()
+	if app.floating != 0 {
+		restoreFloating()
 	}
+}
+
+func createFloatingWindow(parent HWND, r desktopRect) bool {
+	style := uintptr(WS_POPUP)
 	ex := uintptr(WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE)
-	if app.store.Settings.FloatingTopmost {
+	owner := app.main
+	if parent != 0 {
+		style, owner = WS_CHILD, parent
+		restore := enterWindowDPI(parent)
+		defer restore()
+	} else if app.store.Settings.FloatingTopmost {
 		ex |= WS_EX_TOPMOST
 	}
 	floatingDockState = floatingDock{}
-	r, _, _ := pCreateWindowEx.Call(ex, uintptr(unsafe.Pointer(u16(floatClass))), uintptr(unsafe.Pointer(u16("WorkMate 挂件"))), WS_POPUP, uintptr(x), uintptr(y), uintptr(w), uintptr(h), uintptr(app.main), 0, uintptr(app.hInst), 0)
-	app.floating = HWND(r)
+	floatingTaskbarParent = parent
+	hwnd, _, _ := pCreateWindowEx.Call(ex, uintptr(unsafe.Pointer(u16(floatClass))), uintptr(unsafe.Pointer(u16("WorkMate 挂件"))), style, uintptr(r.Left), uintptr(r.Top), uintptr(r.width()), uintptr(r.height()), uintptr(owner), 0, uintptr(app.hInst), 0)
+	app.floating = HWND(hwnd)
 	if app.floating == 0 {
-		return
+		floatingTaskbarParent = 0
 	}
-	applyFloatingSettings()
-	show(app.floating, SW_SHOWNOACTIVATE)
+	return app.floating != 0
 }
 
 func floatingWorkArea(hwnd HWND) desktopRect {
@@ -64,6 +76,10 @@ func floatingWindowRect() desktopRect {
 }
 
 func positionFloating(r desktopRect) {
+	if floatingTaskbarParent != 0 {
+		restore := enterWindowDPI(floatingTaskbarParent)
+		defer restore()
+	}
 	pSetWindowPos.Call(uintptr(app.floating), 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.width()), uintptr(r.height()), SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOOWNERZORDER)
 	invalidate(app.floating)
 }
@@ -76,6 +92,7 @@ func restoreFloating() {
 }
 
 func hideFloating() {
+	app.floatingWanted = false
 	if app.floating != 0 {
 		floatingDockState.outsideSince = time.Time{}
 		show(app.floating, SW_HIDE)
@@ -83,7 +100,7 @@ func hideFloating() {
 }
 
 func updateFloatingDock(now time.Time, x, y int) {
-	if app.floating == 0 || !app.store.Settings.FloatingAutoHide {
+	if app.floating == 0 || floatingTaskbarParent != 0 || !app.store.Settings.FloatingAutoHide {
 		return
 	}
 	// Explicit hide (including the panic key) must never be reversed by hovering.
@@ -104,7 +121,7 @@ func pollFloatingDock() {
 }
 
 func saveFloatingPosition() {
-	if app.store.Settings.FloatingMode != "Taskbar" {
+	if app.store.Settings.FloatingMode == "Screen" && floatingTaskbarParent == 0 && floatingDockState.normal.width() > 0 {
 		app.store.Settings.FloatingLeft = floatingDockState.normal.Left
 		app.store.Settings.FloatingTop = floatingDockState.normal.Top
 		_ = app.store.SaveAll()
@@ -114,7 +131,11 @@ func saveFloatingPosition() {
 func floatWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_PAINT:
-		paintFloating(hwnd)
+		if floatingTaskbarParent != 0 {
+			paintTaskbarFloating(hwnd)
+		} else {
+			paintFloating(hwnd)
+		}
 		return 0
 	case WM_TIMER:
 		if wParam == timerFloatingDock {
@@ -145,12 +166,20 @@ func floatWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		var r RECT
 		pGetClientRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&r)))
 		x, y := signed16(loword(lParam)), signed16(hiword(lParam))
+		if floatingTaskbarParent != 0 {
+			if x >= r.Right-24 {
+				hideFloating()
+			} else {
+				showMain()
+			}
+			return 0
+		}
 		if x > r.Right-38 && y < 36 {
 			hideFloating()
 		}
 		return 0
 	case WM_NCHITTEST:
-		if floatingDockState.collapsed {
+		if floatingTaskbarParent != 0 || floatingDockState.collapsed {
 			return HTCLIENT
 		}
 		var wr RECT
@@ -172,6 +201,7 @@ func floatWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		pKillTimer.Call(uintptr(hwnd), timerFloatingDock)
 		saveFloatingPosition()
 		floatingDockState = floatingDock{}
+		floatingTaskbarParent = 0
 		app.floating = 0
 		return 0
 	}
@@ -194,15 +224,40 @@ func floatPalette() (uint32, uint32, uint32) {
 	return p.Lavender, p.Text, p.Accent
 }
 func applyFloatingSettings() {
-	if app.floating == 0 {
+	if app.floating == 0 && !app.floatingWanted {
 		return
 	}
+	if app.floating != 0 {
+		if valid, _, _ := pIsWindow.Call(uintptr(app.floating)); valid == 0 {
+			app.floating = 0
+			floatingTaskbarParent = 0
+			floatingDockState = floatingDock{}
+		}
+	}
+	if app.store.Settings.FloatingMode == "TaskbarEmbed" {
+		if slot, ok := findTaskbarSlot(app.store.Settings.FloatingSize); ok && applyTaskbarSlot(slot) {
+			return
+		}
+	}
+	if floatingTaskbarParent != 0 && app.floating != 0 {
+		pDestroyWindow.Call(uintptr(app.floating))
+	}
 	w, h := floatingSize()
+	created := app.floating == 0
+	if created {
+		x, y := app.store.Settings.FloatingLeft, app.store.Settings.FloatingTop
+		wa := floatingWorkArea(0)
+		if app.store.Settings.FloatingMode != "Screen" || (x == -1 && y == -1) {
+			x, y = wa.Right-w-18, wa.Bottom-h-12
+		}
+		if !createFloatingWindow(0, desktopRect{x, y, x + w, y + h}) {
+			return
+		}
+	}
 	r := floatingDockState.normal
 	if r.width() <= 0 || r.height() <= 0 {
 		r = floatingWindowRect()
 	}
-	// Keep right/bottom anchoring when dimensions change while docked.
 	x, y := r.Left, r.Top
 	if floatingDockState.edge == dockRight {
 		x = r.Right - w
@@ -211,27 +266,35 @@ func applyFloatingSettings() {
 		y = r.Bottom - h
 	}
 	wa := floatingWorkArea(app.floating)
-	if app.store.Settings.FloatingMode == "Taskbar" {
+	if app.store.Settings.FloatingMode != "Screen" {
 		x, y = wa.Right-w-18, wa.Bottom-h-12
 	}
-	floatingDockState.place(desktopRect{x, y, x + w, y + h}, wa, app.store.Settings.FloatingAutoHide)
+	autoHide := app.store.Settings.FloatingAutoHide && app.store.Settings.FloatingMode != "TaskbarEmbed"
+	floatingDockState.place(desktopRect{x, y, x + w, y + h}, wa, autoHide)
 	r = floatingDockState.normal
 	z := ^uintptr(1) // HWND_NOTOPMOST
 	if app.store.Settings.FloatingTopmost {
-		z = ^uintptr(0) // HWND_TOPMOST
+		z = ^uintptr(0)
 	}
 	pSetWindowPos.Call(uintptr(app.floating), z, uintptr(r.Left), uintptr(r.Top), uintptr(r.width()), uintptr(r.height()), SWP_NOACTIVATE|SWP_NOOWNERZORDER)
+	setFloatingOpacity()
+	if autoHide {
+		pSetTimer.Call(uintptr(app.floating), timerFloatingDock, 100, 0)
+	} else {
+		pKillTimer.Call(uintptr(app.floating), timerFloatingDock)
+	}
+	if created && app.floatingWanted {
+		show(app.floating, SW_SHOWNOACTIVATE)
+	}
+	invalidate(app.floating)
+}
+
+func setFloatingOpacity() {
 	alpha := byte(app.store.Settings.FloatingOpacity * 255)
 	if alpha < 100 {
 		alpha = 100
 	}
 	pSetLayeredWindowAttributes.Call(uintptr(app.floating), 0, uintptr(alpha), LWA_ALPHA)
-	if app.store.Settings.FloatingAutoHide {
-		pSetTimer.Call(uintptr(app.floating), timerFloatingDock, 100, 0)
-	} else {
-		pKillTimer.Call(uintptr(app.floating), timerFloatingDock)
-	}
-	invalidate(app.floating)
 }
 
 func paintFloating(hwnd HWND) {
@@ -250,30 +313,11 @@ func paintFloating(hwnd HWND) {
 	}
 	fill(HDC(hdc), r, bg)
 	now := time.Now()
-	earned, progress := app.store.TodayEarned(now)
-	info := app.store.DayInfo(now)
-	set := app.store.Settings
-	top, detail := "", ""
-	if info.IsRestDay {
-		top = "今天不用打工"
-		detail = "下次上班 " + formatDateShort(app.store.NextWorkDay(now))
-	} else {
-		if set.FloatingShowEarned {
-			top = fmt.Sprintf("≈¥%.0f", earned)
-		}
-		if set.FloatingShowProgress {
-			if top != "" {
-				top += " · "
-			}
-			top += fmt.Sprintf("%d%%", int(progress*100))
-		}
-		if top == "" {
-			top = "打工搭子"
-		}
-		if set.FloatingShowCountdown {
-			a, b := workCountdown(now)
-			detail = a + " " + b
-		}
+	_, progress := app.store.TodayEarned(now)
+	info, set := app.store.DayInfo(now), app.store.Settings
+	top, detail := floatingText(now)
+	if set.FloatingMode == "TaskbarEmbed" {
+		detail = "已贴任务栏上沿 · " + detail
 	}
 	size, detailY, phraseY := 20, int32(39), int32(67)
 	if set.FloatingCompact {
@@ -299,4 +343,32 @@ func paintFloating(hwnd HWND) {
 		}
 	}
 	drawText(HDC(hdc), "×", RECT{r.Right - 36, 4, r.Right - 6, 32}, 17, FW_BOLD, currentPalette().Sub, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+}
+
+func floatingText(now time.Time) (top, detail string) {
+	earned, progress := app.store.TodayEarned(now)
+	info, set := app.store.DayInfo(now), app.store.Settings
+	top, detail = "", ""
+	if info.IsRestDay {
+		top = "今天不用打工"
+		detail = "下次上班 " + formatDateShort(app.store.NextWorkDay(now))
+	} else {
+		if set.FloatingShowEarned {
+			top = fmt.Sprintf("≈¥%.0f", earned)
+		}
+		if set.FloatingShowProgress {
+			if top != "" {
+				top += " · "
+			}
+			top += fmt.Sprintf("%d%%", int(progress*100))
+		}
+		if top == "" {
+			top = "打工搭子"
+		}
+		if set.FloatingShowCountdown {
+			a, b := workCountdown(now)
+			detail = a + " " + b
+		}
+	}
+	return top, detail
 }

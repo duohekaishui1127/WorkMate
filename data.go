@@ -206,7 +206,7 @@ func normalizeSettings(v *Settings) {
 	if v.FloatingOpacity <= 0 || v.FloatingOpacity > 1 {
 		v.FloatingOpacity = d.FloatingOpacity
 	}
-	if v.FloatingMode == "" {
+	if v.FloatingMode != "Screen" && v.FloatingMode != "Taskbar" && v.FloatingMode != "TaskbarEmbed" {
 		v.FloatingMode = d.FloatingMode
 	}
 	if v.FloatingPalette == "" {

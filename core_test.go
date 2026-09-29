@@ -216,6 +216,7 @@ func TestSettingsValidationAndPersistence(t *testing.T) {
 		{"reversed shift", func(v *Settings) { v.WorkEnd = "08:00" }}, {"lunch outside", func(v *Settings) { v.LunchStart = "08:00" }},
 		{"malformed time", func(v *Settings) { v.WorkStart = "09:00junk" }}, {"future employment", func(v *Settings) { v.CumulativeWorkStartDate = "2027-01-01" }},
 		{"invalid employment", func(v *Settings) { v.CumulativeWorkStartDate = "2026-02-30" }}, {"opacity out of range", func(v *Settings) { v.FloatingOpacity = 0.1 }},
+		{"unknown mode", func(v *Settings) { v.FloatingMode = "Unknown" }},
 		{"unknown size", func(v *Settings) { v.FloatingSize = "Huge" }}, {"minute out of range", func(v *Settings) { v.ReminderEveningMinute = 60 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

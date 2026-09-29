@@ -35,18 +35,19 @@ type hitRect struct {
 	R  RECT
 }
 type appState struct {
-	store         *Store
-	license       *LicenseManager
-	hInst         HINSTANCE
-	main          HWND
-	floating      HWND
-	hits          []hitRect
-	tray          NOTIFYICONDATA
-	icon          HICON
-	exiting       bool
-	calendarMonth time.Time
-	calendarHits  []hitRect
-	reminderSeen  map[string]bool
+	store          *Store
+	license        *LicenseManager
+	hInst          HINSTANCE
+	main           HWND
+	floating       HWND
+	floatingWanted bool
+	hits           []hitRect
+	tray           NOTIFYICONDATA
+	icon           HICON
+	exiting        bool
+	calendarMonth  time.Time
+	calendarHits   []hitRect
+	reminderSeen   map[string]bool
 }
 
 var app appState
@@ -202,6 +203,10 @@ func registerClass(name string, proc uintptr) {
 	pRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 }
 func registerWindowClasses() {
+	if taskbarCreatedMessage == 0 {
+		r, _, _ := pRegisterWindowMessage.Call(uintptr(unsafe.Pointer(u16("TaskbarCreated"))))
+		taskbarCreatedMessage = uint32(r)
+	}
 	registerClass(mainClass, syscall.NewCallback(mainWndProc))
 	registerClass(floatClass, syscall.NewCallback(floatWndProc))
 	registerClass(calendarClass, syscall.NewCallback(calendarWndProc))
@@ -224,6 +229,11 @@ func createMainWindow() HWND {
 }
 
 func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
+	if taskbarCreatedMessage != 0 && msg == taskbarCreatedMessage {
+		addTrayIcon()
+		syncTaskbarWidget()
+		return 0
+	}
 	switch msg {
 	case WM_PAINT:
 		paintMain(hwnd)
@@ -240,6 +250,7 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 				setText(getDlgItem(purchaseWnd, 507), "当前状态："+app.license.StatusText(now))
 			}
 			checkReminders(now)
+			syncTaskbarWidget()
 			invalidate(hwnd)
 			if app.floating != 0 {
 				invalidate(app.floating)
@@ -277,6 +288,11 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case WM_DESTROY:
+		app.exiting = true
+		app.floatingWanted = false
+		if floatingTaskbarParent != 0 && app.floating != 0 {
+			pDestroyWindow.Call(uintptr(app.floating))
+		}
 		pKillTimer.Call(uintptr(hwnd), timerMain)
 		pUnregisterHotKey.Call(uintptr(hwnd), hotkeyToggle)
 		pUnregisterHotKey.Call(uintptr(hwnd), hotkeyPanic)
