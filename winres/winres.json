@@ -1,0 +1,45 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": "WorkMate.ico"
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "description": "WorkMate desktop companion",
+        "minimum-os": "win10",
+        "execution-level": "as invoker",
+        "ui-access": false,
+        "auto-elevate": false,
+        "dpi-awareness": "system",
+        "disable-theming": false,
+        "disable-window-filtering": false,
+        "long-path-aware": true,
+        "use-common-controls-v6": true
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "0.7.1.2",
+          "product_version": "0.7.1.2"
+        },
+        "info": {
+          "0409": {
+            "CompanyName": "WorkMate",
+            "FileDescription": "打工搭子 WorkMate",
+            "FileVersion": "0.7.1.2",
+            "InternalName": "WorkMate",
+            "LegalCopyright": "Copyright © 2026 WorkMate",
+            "OriginalFilename": "WorkMate.exe",
+            "ProductName": "打工搭子 WorkMate",
+            "ProductVersion": "0.7.1.2"
+          }
+        }
+      }
+    }
+  }
+}
