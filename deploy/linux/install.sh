@@ -52,6 +52,13 @@ chmod 0600 "$data/license-private.key" "$data/workmate.sqlite"
 systemctl stop workmate-admin.service 2>/dev/null || true
 install -m 0755 "$base/workmate-admin" /opt/workmate/workmate-admin
 install -m 0644 "$base/workmate-admin.service" /etc/systemd/system/workmate-admin.service
+# Preserve an optional tracked download target across backend upgrades.
+download_url=
+if [[ -f /etc/workmate/admin.env ]]; then
+  while IFS= read -r line; do
+    case "$line" in WORKMATE_DOWNLOAD_URL=*) download_url=${line#WORKMATE_DOWNLOAD_URL=} ;; esac
+  done < /etc/workmate/admin.env
+fi
 umask 077
 cat > /etc/workmate/admin.env <<EOF
 WORKMATE_LISTEN=127.0.0.1:8090
@@ -59,6 +66,7 @@ WORKMATE_DATA_DIR=$data
 WORKMATE_PUBLIC_URL=https://$domain
 WORKMATE_TRUSTED_PROXIES=127.0.0.1,::1
 EOF
+if [[ -n "$download_url" ]]; then printf 'WORKMATE_DOWNLOAD_URL=%s\n' "$download_url" >> /etc/workmate/admin.env; fi
 sed "s/pro.your-domain.com/$domain/g" "$base/Caddyfile.example" > /etc/caddy/workmate.d/workmate.caddy
 chmod 0644 /etc/caddy/workmate.d/workmate.caddy
 if [[ ! -f /etc/caddy/Caddyfile ]]; then

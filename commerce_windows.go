@@ -6,17 +6,20 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 	"unsafe"
 )
 
 type purchaseResult struct {
-	kind   string
-	cfg    *onlineConfig
-	ticket *purchaseTicket
-	order  *onlineOrder
-	err    error
-	manual bool
+	kind    string
+	cfg     *onlineConfig
+	ticket  *purchaseTicket
+	order   *onlineOrder
+	err     error
+	manual  bool
+	orderID string
 }
 type onlinePurchaseUI struct {
 	client               *purchaseClient
@@ -27,6 +30,9 @@ type onlinePurchaseUI struct {
 	nextSync, nextConfig time.Time
 	status               string
 	setupError           error
+	ackBusy              bool
+	ackedOrderID         string
+	nextAck              time.Time
 }
 
 var onlinePurchase *onlinePurchaseUI
@@ -141,6 +147,13 @@ func drainOnlinePurchase() {
 	for {
 		select {
 		case r := <-u.results:
+			if r.kind == "ack" {
+				u.ackBusy = false
+				if r.err == nil {
+					u.ackedOrderID = r.orderID
+				}
+				continue
+			}
 			u.busy = false
 			if r.cfg != nil {
 				if err := app.license.ApplyTrialPolicy(r.cfg.TrialPolicy); err != nil {
@@ -160,11 +173,16 @@ func drainOnlinePurchase() {
 				if r.order.Status == "approved" && !app.license.IsPro() {
 					if err := app.license.Activate(r.order.LicenseCode); err != nil {
 						r.err = err
+						reportTelemetryError("license_save")
 					} else {
 						u.status = "Pro 已永久解锁，授权已保存到本机。"
+						telemetryState.next = time.Time{}
 						showBalloon("WorkMate Pro 已开通", "付款已确认，当前电脑已永久解锁。", false)
 						invalidate(app.main)
 					}
+				}
+				if r.order.Status == "approved" {
+					queueActivationReceipt(u, *r.order)
 				}
 			} else if r.cfg != nil {
 				if r.cfg.Enabled && r.cfg.QRAvailable {
@@ -188,6 +206,25 @@ func drainOnlinePurchase() {
 		}
 	}
 }
+func queueActivationReceipt(u *onlinePurchaseUI, order onlineOrder) {
+	if u.client == nil || u.client.ticket == nil || u.client.ticket.OrderID != order.ID ||
+		u.ackBusy || u.ackedOrderID == order.ID || time.Now().Before(u.nextAck) || !app.license.IsPro() {
+		return
+	}
+	localCode, err := os.ReadFile(app.license.licensePath())
+	if err != nil || strings.TrimSpace(string(localCode)) != order.LicenseCode {
+		return
+	}
+	u.ackBusy = true
+	u.nextAck = time.Now().Add(5 * time.Minute)
+	ticket := *u.client.ticket
+	results := u.results
+	client := u.client
+	go func() {
+		results <- purchaseResult{kind: "ack", orderID: order.ID, err: client.acknowledgeActivation(ticket)}
+	}()
+}
+
 func onlineOrderText(o onlineOrder) string {
 	switch o.Status {
 	case "created":

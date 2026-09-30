@@ -14,9 +14,9 @@ import (
 )
 
 type serverConfig struct {
-	listen, dataDir, publicURL string
-	trustedProxies             []netip.Prefix
-	initOnly                   bool
+	listen, dataDir, publicURL, downloadURL string
+	trustedProxies                          []netip.Prefix
+	initOnly                                bool
 }
 
 func readConfig(args []string, getenv func(string) string) (serverConfig, error) {
@@ -31,6 +31,7 @@ func readConfig(args []string, getenv func(string) string) (serverConfig, error)
 	fs.StringVar(&cfg.listen, "listen", value("WORKMATE_LISTEN", "127.0.0.1:8090"), "HTTP listen address; WORKMATE_LISTEN")
 	fs.StringVar(&cfg.dataDir, "data-dir", value("WORKMATE_DATA_DIR", "admin-data"), "database and license key directory; WORKMATE_DATA_DIR")
 	fs.StringVar(&cfg.publicURL, "public-url", value("WORKMATE_PUBLIC_URL", ""), "external HTTPS origin; WORKMATE_PUBLIC_URL")
+	fs.StringVar(&cfg.downloadURL, "download-url", value("WORKMATE_DOWNLOAD_URL", ""), "optional HTTPS release asset URL; WORKMATE_DOWNLOAD_URL")
 	var proxies string
 	fs.StringVar(&proxies, "trusted-proxies", value("WORKMATE_TRUSTED_PROXIES", ""), "comma-separated trusted proxy IPs/CIDRs; WORKMATE_TRUSTED_PROXIES")
 	fs.BoolVar(&cfg.initOnly, "init", false, "initialize local data and credentials, then exit")
@@ -43,6 +44,7 @@ func readConfig(args []string, getenv func(string) string) (serverConfig, error)
 	cfg.listen = strings.TrimSpace(cfg.listen)
 	cfg.dataDir = strings.TrimSpace(cfg.dataDir)
 	cfg.publicURL = strings.TrimSpace(cfg.publicURL)
+	cfg.downloadURL = strings.TrimSpace(cfg.downloadURL)
 	if cfg.dataDir == "" {
 		return cfg, errors.New("data-dir cannot be empty")
 	}
@@ -63,6 +65,12 @@ func readConfig(args []string, getenv func(string) string) (serverConfig, error)
 	}
 	ip := net.ParseIP(host)
 	loopback := strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+	if cfg.downloadURL != "" {
+		u, err := url.Parse(cfg.downloadURL)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || len(cfg.downloadURL) > 2048 {
+			return cfg, errors.New("download-url must be a full HTTPS release asset URL")
+		}
+	}
 	if !loopback && cfg.publicURL == "" {
 		return cfg, errors.New("non-loopback access requires public-url and an HTTPS reverse proxy")
 	}

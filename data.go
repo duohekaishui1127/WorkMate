@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const appVersion = "0.8.0"
+const appVersion = "0.9.0"
 const appDisplayName = "打工搭子 WorkMate"
 
 type Settings struct {
@@ -52,6 +52,8 @@ type Settings struct {
 	ReminderEnabled            bool    `json:"ReminderEnabled"`
 	ReminderEveningHour        int     `json:"ReminderEveningHour"`
 	ReminderEveningMinute      int     `json:"ReminderEveningMinute"`
+	TelemetryAsked             bool    `json:"TelemetryAsked"`
+	TelemetryConsent           bool    `json:"TelemetryConsent"`
 }
 
 type DailyRecord struct {

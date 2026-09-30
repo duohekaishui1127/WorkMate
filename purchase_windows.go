@@ -190,6 +190,7 @@ func purchaseWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			if err := app.license.Activate(code); err != nil {
 				msgBox(hwnd, "激活失败", err.Error(), MB_OK|MB_ICONERROR)
 			} else {
+				telemetryState.next = time.Time{}
 				msgBox(hwnd, "激活成功", "WorkMate Pro 已永久解锁。", MB_OK|MB_ICONINFORMATION)
 				pDestroyWindow.Call(uintptr(hwnd))
 				invalidate(app.main)

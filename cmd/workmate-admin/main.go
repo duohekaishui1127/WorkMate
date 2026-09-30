@@ -55,7 +55,7 @@ func run(ctx context.Context, cfg serverConfig) error {
 		return err
 	}
 	defer listener.Close()
-	srv := &http.Server{Handler: admin.NewHandler(s, admin.HTTPOptions{PublicURL: cfg.publicURL, TrustedProxies: cfg.trustedProxies}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	srv := &http.Server{Handler: admin.NewHandler(s, admin.HTTPOptions{PublicURL: cfg.publicURL, DownloadURL: cfg.downloadURL, TrustedProxies: cfg.trustedProxies}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	adminURL := cfg.publicURL
 	if adminURL == "" {
 		adminURL = "http://" + listener.Addr().String()

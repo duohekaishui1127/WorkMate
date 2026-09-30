@@ -7,8 +7,10 @@ const $ = (id) => document.getElementById(id),
     rejected: "已驳回",
   };
 let csrf = "",
-  tab = "orders",
+  tab = "overview",
   offset = 0,
+  userOffset = 0,
+  userTotal = 0,
   selected = null,
   total = 0,
   decisionBusy = false,
@@ -277,13 +279,157 @@ async function loadAudit() {
     $("audit-list").append(row);
   }
 }
+function formatCount(value) {
+  return new Intl.NumberFormat("zh-CN").format(value);
+}
+function formatPercent(value, denominator) {
+  return denominator ? value.toFixed(1) + "%" : "—";
+}
+function renderTrend(points) {
+  const root = $("active-trend");
+  root.replaceChildren();
+  if (!points.length || points.every((point) => point.active === 0)) {
+    root.textContent = "尚无已同意匿名统计的活跃设备";
+    return;
+  }
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 700 220");
+  svg.setAttribute("aria-hidden", "true");
+  const max = Math.max(1, ...points.map((point) => point.active));
+  const xy = points.map((point, i) => ({
+    x: 48 + (i * 620) / Math.max(1, points.length - 1),
+    y: 174 - (point.active * 145) / max,
+  }));
+  for (let i = 0; i <= 4; i++) {
+    const y = 174 - (i * 145) / 4;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", "48");
+    line.setAttribute("x2", "668");
+    line.setAttribute("y1", String(y));
+    line.setAttribute("y2", String(y));
+    line.setAttribute("class", "chart-grid");
+    svg.append(line);
+    const tick = document.createElementNS(ns, "text");
+    tick.setAttribute("x", "39");
+    tick.setAttribute("y", String(y + 4));
+    tick.setAttribute("text-anchor", "end");
+    tick.textContent = String(Math.round((max * i) / 4));
+    svg.append(tick);
+  }
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", xy.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" "));
+  path.setAttribute("class", "chart-line");
+  svg.append(path);
+  points.forEach((point, i) => {
+    const dot = document.createElementNS(ns, "circle");
+    dot.setAttribute("cx", String(xy[i].x));
+    dot.setAttribute("cy", String(xy[i].y));
+    dot.setAttribute("r", "4");
+    dot.setAttribute("class", "chart-dot");
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${point.day}：${point.active} 台活跃，${point.new} 台新增`;
+    dot.append(title);
+    svg.append(dot);
+    if (i === 0 || i === points.length - 1 || i % 3 === 0) {
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", String(xy[i].x));
+      label.setAttribute("y", "205");
+      label.setAttribute("text-anchor", "middle");
+      label.textContent = point.day.slice(5).replace("-", "/");
+      svg.append(label);
+    }
+  });
+  root.append(svg);
+}
+function renderMiniList(id, items, format) {
+  const root = $(id);
+  root.replaceChildren();
+  if (!items.length) {
+    root.textContent = "暂无数据";
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement("div");
+    const [label, count] = format(item);
+    const name = document.createElement("span");
+    name.textContent = label;
+    const value = document.createElement("strong");
+    value.textContent = formatCount(count);
+    row.append(name, value);
+    root.append(row);
+  }
+}
+async function loadOverview() {
+  const data = await api("/api/admin/analytics");
+  const cards = [
+    ["今日首次启动", data.today_first_starts, "已同意统计且今日首次使用"],
+    ["今日新增记录", data.today_new, "今日首次接入统计的设备"],
+    ["今日活跃", data.today_active, "今天至少启动或运行一次"],
+    ["累计已知设备", data.total_known_devices, "参与统计或创建过线上订单"],
+    ["今日已付款订单", data.today_paid_orders, "已核实到账并开通"],
+    ["今日订单金额", money(data.today_revenue_cents), "未扣退款和手续费"],
+    ["已知 Pro 设备", data.known_pro_devices, "在线订单或同意统计的离线授权"],
+    ["试用 → Pro", formatPercent(data.trial_to_paid_percent, data.trial_devices), `试用设备 ${data.trial_devices} 台`],
+    ["激活回执率", formatPercent(data.activation_percent, data.approved_orders), `${data.activated_orders} / ${data.approved_orders} 个新版已开通订单`],
+    ["今日下载入口点击", data.download_clicks == null ? "—" : data.download_clicks, "尚未配置可统计的下载入口"],
+  ];
+  $("overview-stats").replaceChildren();
+  for (const [label, value, hint] of cards) {
+    const card = document.createElement("div");
+    card.className = "stat";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const number = document.createElement("strong");
+    number.textContent = typeof value === "number" ? formatCount(value) : value;
+    const detail = document.createElement("small");
+    detail.textContent = hint;
+    card.append(name, number, detail);
+    $("overview-stats").append(card);
+  }
+  renderTrend(data.trend || []);
+  renderMiniList("version-flows", data.version_flows || [], (item) => [`${item.from} → ${item.to}`, item.count]);
+  renderMiniList("version-errors", data.version_errors || [], (item) => [item.version, item.reports]);
+  await loadAnalyticsUsers();
+}
+async function loadAnalyticsUsers() {
+  const data = await api("/api/admin/users?" + new URLSearchParams({
+    search: $("user-search").value,
+    offset: String(userOffset),
+  }));
+  userTotal = data.total;
+  $("user-list").replaceChildren();
+  for (const user of data.users) {
+    const row = document.createElement("tr");
+    const device = cell(row, user.device_id);
+    device.className = "mono device-id";
+    cell(row, date(user.first_seen));
+    cell(row, date(user.last_seen));
+    cell(row, `${user.first_version} → ${user.current_version}`);
+    cell(row, user.edition === "pro" ? "Pro" : "普通版");
+    cell(row, user.trial_started_at ? date(user.trial_started_at) : "—");
+    cell(row, user.pro_activated_at ? date(user.pro_activated_at) : "—");
+    cell(row, { received: "已领取", pending: "待客户端领取", offline: "离线授权", none: "无" }[user.auth_status] || "—");
+    $("user-list").append(row);
+  }
+  if (!data.users.length) {
+    const row = document.createElement("tr"), td = cell(row, "暂无匿名设备记录");
+    td.colSpan = 8;
+    $("user-list").append(row);
+  }
+  $("user-total").textContent = `共 ${userTotal} 台 · 第 ${Math.floor(userOffset / 50) + 1} 页`;
+  $("user-previous").disabled = userOffset === 0;
+  $("user-next").disabled = userOffset + 50 >= userTotal;
+}
+
 async function switchTab(next) {
   tab = next;
-  for (const name of ["orders", "settings", "audit"])
+  for (const name of ["overview", "orders", "settings", "audit"])
     $(name + "-tab").hidden = name !== tab;
   document
     .querySelectorAll("[data-tab]")
     .forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  if (tab === "overview") await loadOverview();
   if (tab === "orders") await loadOrders();
   if (tab === "settings") await loadSettings();
   if (tab === "audit") await loadAudit();
@@ -328,6 +474,19 @@ bindAsync("search-form", "submit", async () => {
   await loadOrders();
 });
 bindAsync("refresh", "click", loadOrders);
+bindAsync("refresh-overview", "click", loadOverview);
+bindAsync("user-search-form", "submit", async () => {
+  userOffset = 0;
+  await loadAnalyticsUsers();
+});
+bindAsync("user-previous", "click", async () => {
+  userOffset = Math.max(0, userOffset - 50);
+  await loadAnalyticsUsers();
+});
+bindAsync("user-next", "click", async () => {
+  userOffset += 50;
+  await loadAnalyticsUsers();
+});
 bindAsync("status", "change", async () => {
   offset = 0;
   await loadOrders();
@@ -425,6 +584,9 @@ document
   }
 })();
 setInterval(() => {
-  if (csrf && tab === "orders" && !$("detail").open && !document.hidden)
+  if (!csrf || document.hidden) return;
+  if (tab === "orders" && !$("detail").open)
     loadOrders().catch((e) => notice(e.message, true));
+  if (tab === "overview")
+    loadOverview().catch((e) => notice(e.message, true));
 }, 30000);

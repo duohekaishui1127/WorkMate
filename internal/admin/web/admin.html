@@ -12,7 +12,7 @@
     <main id="login" class="login-card">
       <span class="brand">W / WorkMate</span>
       <h1>管理后台</h1>
-      <p class="muted">核对收款，处理订单，管理 Pro 授权。</p>
+      <p class="muted">查看运营概览、订单与 Pro 授权。</p>
       <form id="login-form">
         <label
           >管理员账号<input
@@ -38,13 +38,66 @@
       </header>
       <div class="workspace">
         <nav aria-label="后台导航">
-          <button data-tab="orders" class="active">订单与授权</button
+          <button data-tab="overview" class="active">运营概览</button
+          ><button data-tab="orders">订单与授权</button
           ><button data-tab="settings">购买设置</button
           ><button data-tab="audit">操作记录</button>
           <p>使用个人收款码<br />付款由你人工核实</p>
         </nav>
         <main class="content">
-          <section id="orders-tab">
+          <section id="overview-tab">
+            <div class="title-row">
+              <div>
+                <h1>摸鱼搭子 · 运营概览</h1>
+                <p class="muted">今日按北京时间统计；活跃和版本数据仅覆盖同意设备使用统计的设备。</p>
+              </div>
+              <button id="refresh-overview" class="secondary" type="button">刷新数据</button>
+            </div>
+            <div id="overview-stats" class="overview-stats" aria-live="polite"></div>
+            <p class="hint">收入按已核实订单金额计算，未扣手续费或退款；下载量需使用可统计的下载入口。</p>
+            <div class="overview-grid">
+              <section class="panel trend-panel">
+                <h2>近 14 天活跃设备</h2>
+                <div id="active-trend" class="chart" role="img" aria-label="近 14 天日活趋势"></div>
+              </section>
+              <section class="panel">
+                <h2>版本与问题</h2>
+                <h3>观测到的版本升级</h3>
+                <div id="version-flows" class="mini-list"></div>
+                <h3>客户端报告的错误</h3>
+                <div id="version-errors" class="mini-list"></div>
+                <p class="hint">错误数仅包含已上报的故障，不能代表该版本所有 Bug。</p>
+              </section>
+            </div>
+            <section class="panel user-panel">
+              <div class="title-row">
+                <div>
+                  <h2>设备使用记录</h2>
+                  <p class="hint">设备哈希码可关联同设备订单；未同意统计的普通版用户不会出现在此表中。</p>
+                </div>
+                <form id="user-search-form" class="toolbar compact-toolbar">
+                  <label class="sr-only" for="user-search">搜索设备码或版本</label>
+                  <input id="user-search" maxlength="64" placeholder="搜索设备码或版本" />
+                  <button class="secondary" type="submit">搜索</button>
+                </form>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>
+                    <th>设备 ID</th><th>首次记录</th><th>最后活跃</th><th>首次 → 当前版本</th>
+                    <th>版本状态</th><th>试用开始</th><th>Pro 激活</th><th>授权状态</th>
+                  </tr></thead>
+                  <tbody id="user-list"></tbody>
+                </table>
+              </div>
+              <div class="pagination">
+                <span id="user-total"></span>
+                <button id="user-previous" class="secondary" type="button">上一页</button>
+                <button id="user-next" class="secondary" type="button">下一页</button>
+              </div>
+            </section>
+          </section>
+          <section id="orders-tab" hidden>
             <div class="title-row">
               <div>
                 <h1>订单与授权</h1>

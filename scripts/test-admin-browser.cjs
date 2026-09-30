@@ -104,6 +104,23 @@ async function main() {
     await page.locator('[name="password"]').fill(password);
     await page.locator("#login-form button").click();
     await page.locator("#app").waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#overview-stats").children.length > 0);
+    assert.match(await page.locator("#overview-stats").innerText(), /今日首次启动/);
+    const observedDevice = "d".repeat(64);
+    const observed = await fetch(base + "/api/telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: observedDevice, version: "0.8.0", trial_started_at: new Date().toISOString(), pro: false }),
+    });
+    assert.equal(observed.status, 204);
+    await page.locator("#refresh-overview").click();
+    await page.waitForFunction(() => document.querySelector("#user-list").textContent.includes("d".repeat(64)));
+    assert.match(await page.locator("#overview-stats").innerText(), /今日活跃\s+1/);
+    assert.equal(await page.locator("#active-trend svg").count(), 1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, "mobile overview should not overflow");
+    await page.screenshot({ path: "dist/workmate-overview-preview.png", fullPage: true });
+    await page.setViewportSize({ width: 1360, height: 980 });
     await page.locator('[data-tab="settings"]').click();
     await page
       .locator("#qr-file")

@@ -98,8 +98,11 @@ curl --fail https://你的实际域名/healthz
 | `WORKMATE_LISTEN` | `127.0.0.1:8090` | HTTP 监听地址 |
 | `WORKMATE_DATA_DIR` | `admin-data` | 数据与签名密钥目录 |
 | `WORKMATE_PUBLIC_URL` | 空 | 实际 HTTPS 访问地址，不包含路径 |
+| `WORKMATE_DOWNLOAD_URL` | 空 | 可选：HTTPS 安装包地址，用于 `/download` 点击统计 |
 | `WORKMATE_TRUSTED_PROXIES` | 空 | 可信代理 IP/CIDR，逗号分隔 |
 
-对应参数为 `-listen`、`-data-dir`、`-public-url`、`-trusted-proxies`。部署模板只信任本机 Caddy，并由 Caddy 覆盖用户发送的转发头。后台按真实来源地址限流，不会把所有用户算作同一个代理用户；未配置可信代理时忽略转发头。
+对应参数为 `-listen`、`-data-dir`、`-public-url`、`-download-url`、`-trusted-proxies`。部署模板只信任本机 Caddy，并由 Caddy 覆盖用户发送的转发头。后台按真实来源地址限流，不会把所有用户算作同一个代理用户；未配置可信代理时忽略转发头。
 
-数据库当前使用单机 SQLite，先运行一个后台实例。无需另买数据库服务。所有工资、加班和请假记录仍留在用户本机，后台只管理订单及授权；不会因此变成安装用户或在线用户统计系统。
+数据库当前使用单机 SQLite，先运行一个后台实例。无需另买数据库服务。所有工资、加班和请假记录仍留在用户本机，后台还会统计**明确同意设备使用统计**的客户端活跃、试用、版本与固定错误类别；不会收集工资、加班和请假记录。下载量仅在配置下载入口后显示入口点击次数，不能确认安装包下载完成。
+
+运营概览的指标口径、用户选择统计的方式及下载入口配置见 [ADMIN.md](ADMIN.md)。

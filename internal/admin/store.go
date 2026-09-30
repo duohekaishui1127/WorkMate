@@ -142,6 +142,10 @@ CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, occurred
 		db.Close()
 		return nil, err
 	}
+	if err = s.initAnalytics(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	defaults, _ := json.Marshal(Settings{PriceCents: 1990, TrialHours: 24})
 	if _, err = db.Exec("INSERT OR IGNORE INTO settings(id,body) VALUES(1,?)", string(defaults)); err != nil {
 		db.Close()

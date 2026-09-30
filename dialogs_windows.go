@@ -40,7 +40,7 @@ func openSettingsWindow() {
 		pSetForegroundWindow.Call(uintptr(settingsWnd))
 		return
 	}
-	settingsWnd = createOwnedWindow(settingsClass, "WorkMate 设置", 920, 666, app.main)
+	settingsWnd = createOwnedWindow(settingsClass, "WorkMate 设置", 920, 714, app.main)
 	show(settingsWnd, SW_SHOW)
 }
 
@@ -109,10 +109,15 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		combo(516, "挂件位置", 121, floatingModeChoices, s.FloatingMode)
 		updateFloatingModeControls(hwnd)
-		createCtl(hwnd, "STATIC", "任务栏内嵌随任务栏显示；空位不足时自动贴上沿。", 0, 24, 634, 410, 20, 130)
+		createCtl(hwnd, "STATIC", "任务栏内嵌随任务栏显示；空位不足时自动贴上沿。", 0, 24, 632, 430, 20, 130)
+		telemetry := createCtl(hwnd, "BUTTON", "允许发送设备使用统计（可随时关闭）", BS_AUTOCHECKBOX|WS_TABSTOP, 478, 616, 410, 26, 131)
+		if s.TelemetryConsent {
+			pSendMessage.Call(uintptr(telemetry), BM_SETCHECK, BST_CHECKED, 0)
+		}
+		createCtl(hwnd, "STATIC", "设备哈希码（可关联订单）、版本、活跃日期、试用/Pro 状态和固定错误类别。", 0, 478, 642, 410, 38, 0)
 		createCtl(hwnd, "STATIC", "今日收入按日程估算；报告收入按记录工时估算。年假额度按参加工作日期估算。\r\n拖动挂件靠近屏幕边缘即可吸附。\r\nCtrl+Alt+Q 或右键挂件可立即隐藏全部窗口。", 0, 24, 530, 410, 102, 0)
-		createCtl(hwnd, "BUTTON", "保存设置", BS_PUSHBUTTON|WS_TABSTOP, 674, 616, 100, 36, 190)
-		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 798, 616, 90, 36, 191)
+		createCtl(hwnd, "BUTTON", "保存设置", BS_PUSHBUTTON|WS_TABSTOP, 674, 670, 100, 36, 190)
+		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 798, 670, 90, 36, 191)
 		return 0
 	case WM_COMMAND:
 		switch loword(wParam) {
@@ -208,6 +213,8 @@ func saveSettingsFromWindow(hwnd HWND) {
 	next.FloatingShowPhrase, next.FloatingCompact = checked(hwnd, 126), checked(hwnd, 127)
 	next.FloatingAutoHide, next.FloatingTopmost = checked(hwnd, 128), checked(hwnd, 129)
 	next.FloatingMode = selectedChoice(hwnd, 121, floatingModeChoices)
+	next.TelemetryAsked, next.TelemetryConsent = true, checked(hwnd, 131)
+	previousTelemetry := app.store.Settings.TelemetryConsent
 	if err := app.store.UpdateSettings(next, time.Now()); err != nil {
 		fail(err)
 		return
@@ -215,6 +222,9 @@ func saveSettingsFromWindow(hwnd HWND) {
 	if err := applyAutoStart(next.AutoStart); err != nil {
 		msgBox(hwnd, "开机启动设置失败", "其他设置已保存，但开机启动未更新："+err.Error(), MB_OK|MB_ICONWARNING)
 		return
+	}
+	if next.TelemetryConsent && !previousTelemetry {
+		telemetryState.next = time.Time{}
 	}
 	pDestroyWindow.Call(uintptr(hwnd))
 	invalidate(app.main)

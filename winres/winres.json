@@ -24,19 +24,19 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "0.8.0",
-          "product_version": "0.8.0"
+          "file_version": "0.9.0",
+          "product_version": "0.9.0"
         },
         "info": {
           "0409": {
             "CompanyName": "WorkMate",
             "FileDescription": "打工搭子 WorkMate",
-            "FileVersion": "0.8.0",
+            "FileVersion": "0.9.0",
             "InternalName": "WorkMate",
             "LegalCopyright": "Copyright © 2026 WorkMate",
             "OriginalFilename": "WorkMate.exe",
             "ProductName": "打工搭子 WorkMate",
-            "ProductVersion": "0.8.0"
+            "ProductVersion": "0.9.0"
           }
         }
       }

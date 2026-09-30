@@ -162,6 +162,16 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 	if err = lm.Activate(order.LicenseCode); err != nil || !lm.IsPro() {
 		t.Fatal("signed backend license did not activate", err)
 	}
+	if err = client.acknowledgeActivation(ticket); err != nil {
+		t.Fatal("activated license receipt failed", err)
+	}
+	if err = client.sendTelemetry("/api/telemetry", map[string]any{"device_id": device, "version": appVersion, "trial_started_at": lm.trialStart.UTC().Format(time.RFC3339), "pro": true}); err != nil {
+		t.Fatal("client lifecycle report failed", err)
+	}
+	stats, err := store.AnalyticsOverview()
+	if err != nil || stats.ActivatedOrders != 1 || stats.TodayActive != 1 || stats.KnownProDevices != 1 {
+		t.Fatalf("backend did not observe activation and usage: %+v %v", stats, err)
+	}
 	srv.Close()
 	offline := &LicenseManager{dataDir: dataDir, deviceID: device}
 	offline.loadLicense()

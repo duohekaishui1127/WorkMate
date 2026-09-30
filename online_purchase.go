@@ -153,6 +153,30 @@ func (c *purchaseClient) request(method, path, token string, body any, out any) 
 	}
 	return nil
 }
+
+// sendTelemetry deliberately accepts no arbitrary client state or diagnostic text.
+// A successful report has an empty 204 response; redirects are forbidden by c.http.
+func (c *purchaseClient) sendTelemetry(path string, payload any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", c.base+path, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		return errors.New("统计服务暂不可用")
+	}
+	return nil
+}
+
 func (c *purchaseClient) config() (onlineConfig, error) {
 	var cfg onlineConfig
 	err := c.request("GET", "/api/config", "", nil, &cfg)
@@ -180,6 +204,21 @@ func (c *purchaseClient) status(t purchaseTicket) (onlineOrder, error) {
 		err = errors.New("购买后台返回的订单无效")
 	}
 	return order, err
+}
+func (c *purchaseClient) acknowledgeActivation(t purchaseTicket) error {
+	if !validTicket(t) || t.ServerURL != c.base || t.DeviceID != c.device {
+		return errors.New("订单访问凭证无效")
+	}
+	var response struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.request("POST", "/api/orders/"+url.PathEscape(t.OrderID)+"/activated", t.Token, nil, &response); err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New("激活回执无效")
+	}
+	return nil
 }
 func (c *purchaseClient) purchaseURL() string {
 	if c.ticket == nil {

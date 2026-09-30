@@ -624,3 +624,106 @@ summary {
 .plan-card p { margin: 6px 0 0; font-size: 13px; }
 .plan-details .hint { margin: 0; }
 @media (max-width: 600px) { .plan-grid { grid-template-columns: 1fr; } }
+
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 22px 0 14px;
+}
+.overview-stats .stat {
+  min-width: 0;
+}
+.overview-stats .stat small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+  gap: 18px;
+  margin: 24px 0;
+}
+.overview-grid .panel,
+.user-panel {
+  min-width: 0;
+}
+.overview-grid h3 {
+  font-size: 14px;
+  margin: 22px 0 8px;
+}
+.chart {
+  min-height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.chart svg {
+  width: 100%;
+  height: auto;
+}
+.chart text {
+  fill: var(--muted);
+  font-size: 12px;
+}
+.chart-grid {
+  stroke: #e5eee8;
+  stroke-width: 1;
+}
+.chart-line {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.chart-dot {
+  fill: var(--green);
+  stroke: white;
+  stroke-width: 2;
+}
+.mini-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+}
+.mini-list > div span {
+  overflow-wrap: anywhere;
+}
+.mini-list > div strong {
+  flex-shrink: 0;
+}
+.compact-toolbar {
+  margin: 0 0 16px;
+}
+.device-id {
+  max-width: 190px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1050px) {
+  .overview-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 650px) {
+  .overview-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  .user-panel .title-row {
+    display: block;
+  }
+  nav {
+    overflow-x: auto;
+  }
+  nav button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+}

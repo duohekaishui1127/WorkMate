@@ -26,6 +26,7 @@ var web embed.FS
 
 type HTTPOptions struct {
 	PublicURL      string
+	DownloadURL    string
 	TrustedProxies []netip.Prefix
 }
 type quota struct {
@@ -33,20 +34,24 @@ type quota struct {
 	count int
 }
 type handler struct {
-	store   *Store
-	origin  string
-	secure  bool
-	mu      sync.Mutex
-	limits  map[string]quota
-	images  chan struct{}
-	proxies []netip.Prefix
+	store       *Store
+	origin      string
+	downloadURL string
+	secure      bool
+	mu          sync.Mutex
+	limits      map[string]quota
+	images      chan struct{}
+	proxies     []netip.Prefix
 }
 
 func NewHandler(store *Store, opts HTTPOptions) http.Handler {
-	h := &handler{store: store, origin: strings.TrimRight(opts.PublicURL, "/"), secure: strings.HasPrefix(opts.PublicURL, "https://"), limits: map[string]quota{}, images: make(chan struct{}, 2), proxies: append([]netip.Prefix(nil), opts.TrustedProxies...)}
+	h := &handler{store: store, origin: strings.TrimRight(opts.PublicURL, "/"), downloadURL: opts.DownloadURL, secure: strings.HasPrefix(opts.PublicURL, "https://"), limits: map[string]quota{}, images: make(chan struct{}, 2), proxies: append([]netip.Prefix(nil), opts.TrustedProxies...)}
 	m := http.NewServeMux()
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/admin", http.StatusFound) })
 	m.HandleFunc("GET /admin", h.page("admin.html"))
+	if h.downloadURL != "" {
+		m.HandleFunc("GET /download", h.download)
+	}
 	m.HandleFunc("GET /buy/{id}", h.page("buy.html"))
 	m.HandleFunc("GET /static/{name}", h.asset)
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
@@ -63,11 +68,16 @@ func NewHandler(store *Store, opts HTTPOptions) http.Handler {
 	m.HandleFunc("GET /api/orders/{id}", h.order)
 	m.HandleFunc("POST /api/orders/{id}/submit", h.submit)
 	m.HandleFunc("POST /api/orders/{id}/evidence", h.evidenceUpload)
+	m.HandleFunc("POST /api/orders/{id}/activated", h.activationReceipt)
+	m.HandleFunc("POST /api/telemetry", h.telemetry)
+	m.HandleFunc("POST /api/telemetry/error", h.telemetryError)
 	m.HandleFunc("POST /api/admin/login", h.login)
 	m.HandleFunc("GET /api/admin/me", h.admin(h.me))
 	m.HandleFunc("POST /api/admin/logout", h.admin(h.logout))
 	m.HandleFunc("POST /api/admin/password", h.admin(h.password))
 	m.HandleFunc("GET /api/admin/orders", h.admin(h.orders))
+	m.HandleFunc("GET /api/admin/analytics", h.admin(h.analytics))
+	m.HandleFunc("GET /api/admin/users", h.admin(h.analyticsUsers))
 	m.HandleFunc("POST /api/admin/orders/{id}/{action}", h.admin(h.decision))
 	m.HandleFunc("GET /api/admin/orders/{id}/evidence", h.admin(h.evidence))
 	m.HandleFunc("GET /api/admin/settings", h.admin(h.settings))
@@ -486,4 +496,84 @@ func (h *handler) audit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, items)
+}
+
+func (h *handler) telemetry(w http.ResponseWriter, r *http.Request) {
+	if !h.allowed(w, r, "telemetry", 60) {
+		return
+	}
+	var v TelemetryReport
+	if !decode(w, r, &v) {
+		return
+	}
+	if err := h.store.RecordTelemetry(v); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) telemetryError(w http.ResponseWriter, r *http.Request) {
+	if !h.allowed(w, r, "telemetry_error", 20) {
+		return
+	}
+	var v ErrorReport
+	if !decode(w, r, &v) {
+		return
+	}
+	if err := h.store.RecordError(v); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) activationReceipt(w http.ResponseWriter, r *http.Request) {
+	if !h.allowed(w, r, "activation", 20) {
+		return
+	}
+	if err := h.store.AckActivation(r.PathValue("id"), bearer(r)); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (h *handler) download(w http.ResponseWriter, r *http.Request) {
+	if err := h.store.RecordDownloadClick(); err != nil {
+		fail(w, err)
+		return
+	}
+	http.Redirect(w, r, h.downloadURL, http.StatusFound)
+}
+
+func (h *handler) analytics(w http.ResponseWriter, r *http.Request) {
+	v, err := h.store.AnalyticsOverview()
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if h.downloadURL != "" && v.DownloadClicks == nil {
+		zero := 0
+		v.DownloadClicks = &zero
+	}
+	writeJSON(w, 200, v)
+}
+
+func (h *handler) analyticsUsers(w http.ResponseWriter, r *http.Request) {
+	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
+	if r.URL.Query().Get("offset") == "" {
+		offset = 0
+		err = nil
+	}
+	if err != nil {
+		fail(w, errors.New("查询条件无效"))
+		return
+	}
+	users, total, err := h.store.AnalyticsUsers(r.URL.Query().Get("search"), offset)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"users": users, "total": total})
 }

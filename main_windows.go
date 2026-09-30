@@ -120,6 +120,9 @@ func main() {
 	if floating {
 		toggleFloating(true)
 	}
+	if !hidden {
+		requestTelemetryConsent()
+	}
 
 	var msg MSG
 	for {
@@ -244,6 +247,7 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			syncOnlinePurchase(now, false)
 			app.store.Tick(now)
 			app.license.Tick(now)
+			syncTelemetry(now)
 			if purchaseWnd != 0 {
 				setText(getDlgItem(purchaseWnd, 507), "当前状态："+app.license.StatusText(now))
 			}
@@ -321,6 +325,7 @@ func showMain() {
 	show(app.main, SW_RESTORE)
 	pSetForegroundWindow.Call(uintptr(app.main))
 	invalidate(app.main)
+	requestTelemetryConsent()
 }
 func panicHide() {
 	hideFloating()
@@ -540,6 +545,7 @@ func backupFromUI() {
 		return
 	}
 	if err := app.store.CreateBackup(p); err != nil {
+		reportTelemetryError("backup_failed")
 		msgBox(app.main, "备份失败", err.Error(), MB_OK|MB_ICONERROR)
 	} else {
 		msgBox(app.main, "备份完成", "备份已保存到：\n"+p, MB_OK|MB_ICONINFORMATION)
@@ -554,6 +560,7 @@ func restoreFromUI() {
 		return
 	}
 	if err := app.store.RestoreBackup(p); err != nil {
+		reportTelemetryError("restore_failed")
 		msgBox(app.main, "恢复失败", err.Error(), MB_OK|MB_ICONERROR)
 	} else {
 		msgBox(app.main, "恢复完成", "数据已经恢复。", MB_OK|MB_ICONINFORMATION)
