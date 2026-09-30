@@ -489,3 +489,138 @@ summary {
     padding: 26px;
   }
 }
+
+/* Keep the two routine tasks visible: a screenshot for buyers, a receipt for owners. */
+.full-width {
+  width: 100%;
+}
+.submit-hint {
+  margin: 10px 0 0;
+}
+.upload-box {
+  padding: 20px;
+  border: 1px dashed #88ad9a;
+  border-radius: 10px;
+  background: #f6faf6;
+  cursor: pointer;
+}
+.upload-box strong,
+.upload-box span {
+  display: block;
+}
+.upload-box input {
+  margin-top: 16px;
+  background: white;
+}
+.upload-preview {
+  max-height: 280px;
+  border-radius: 8px;
+}
+.status-panel {
+  text-align: center;
+}
+.status-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  color: var(--green);
+  background: #dceee3;
+  font-size: 26px;
+}
+.status-panel details {
+  text-align: left;
+}
+.order-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+.order-footer details {
+  flex: 1;
+  min-width: 0;
+}
+.order-footer button {
+  flex-shrink: 0;
+}
+.order-footer summary {
+  font-size: 13px;
+}
+#detail {
+  width: min(1060px, 94vw);
+}
+.compact-actions {
+  margin: 0;
+}
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 26px;
+  margin-top: 16px;
+}
+.review-proof {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8faf7;
+}
+.review-proof .proof {
+  max-height: 500px;
+  margin-bottom: 0;
+}
+.review-controls {
+  min-width: 0;
+}
+.review-summary .price {
+  display: block;
+}
+.review-summary dl {
+  grid-template-columns: 96px minmax(0, 1fr);
+  font-size: 13px;
+}
+.review-controls fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.review-controls details {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+#technical-detail {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .review-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  #detail {
+    padding: 20px;
+  }
+  .review-proof .proof {
+    max-height: 300px;
+  }
+  .review-summary dl {
+    grid-template-columns: 85px minmax(0, 1fr);
+  }
+  .order-footer {
+    flex-wrap: wrap;
+  }
+}
+
+.plan-details { margin: 0 0 20px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; background: var(--paper); }
+.plan-details summary { cursor: pointer; color: var(--green); font-weight: 600; }
+.plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0 8px; }
+.plan-card { padding: 14px; border-radius: 10px; background: var(--bg); }
+.plan-card.pro { background: #e8f4ed; }
+.plan-card p { margin: 6px 0 0; font-size: 13px; }
+.plan-details .hint { margin: 0; }
+@media (max-width: 600px) { .plan-grid { grid-template-columns: 1fr; } }

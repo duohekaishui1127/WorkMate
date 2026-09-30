@@ -10,6 +10,8 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +30,19 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	srv := httptest.NewServer(admin.NewHandler(store, admin.HTTPOptions{}))
+	// Exercise the production topology: a verified HTTPS proxy in front of HTTP.
+	proxy := &httputil.ReverseProxy{}
+	srv := httptest.NewUnstartedServer(proxy)
+	origin := "https://" + srv.Listener.Addr().String()
+	trusted, err := admin.ParseTrustedProxies("127.0.0.1,::1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := httptest.NewServer(admin.NewHandler(store, admin.HTTPOptions{PublicURL: origin, TrustedProxies: trusted}))
+	defer backend.Close()
+	target, _ := url.Parse(backend.URL)
+	proxy.Rewrite = func(r *httputil.ProxyRequest) { r.SetURL(target); r.SetXForwarded() }
+	srv.StartTLS()
 	defer srv.Close()
 	oldKey := onlineLicensePublicKeyB64
 	onlineLicensePublicKeyB64 = store.PublicKey()
@@ -54,6 +68,7 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 		}
 		if body != nil && !isImage {
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", srv.URL)
 		}
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
@@ -62,7 +77,7 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 			req.AddCookie(cookie)
 			req.Header.Set("X-CSRF-Token", csrf)
 		}
-		res, err := http.DefaultClient.Do(req)
+		res, err := srv.Client().Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,6 +87,9 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 		}
 		if path == "/api/admin/login" {
 			cookie = res.Cookies()[0]
+			if !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
+				t.Fatal("production proxy login did not protect its session cookie")
+			}
 		}
 		if out != nil {
 			if err = json.NewDecoder(res.Body).Decode(out); err != nil {
@@ -96,6 +114,7 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.http.Transport = srv.Client().Transport // Trust the test CA; keep TLS verification enabled.
 	start := time.Now().Add(-25 * time.Hour)
 	lm := &LicenseManager{dataDir: dataDir, deviceID: device, trialStart: start}
 	if lm.TrialActive(time.Now()) {
@@ -125,7 +144,8 @@ func TestManualBackendToClientActivationAndOfflineReload(t *testing.T) {
 	if !strings.Contains(client.purchaseURL(), "#"+ticket.Token) {
 		t.Fatal("browser access token must use URL fragment")
 	}
-	call("POST", "/api/orders/"+ticket.OrderID+"/submit", ticket.Token, admin.Submission{Contact: "customer@example.com", Method: "wechat", Reference: "CUSTOMER-REF"}, nil)
+	call("POST", "/api/orders/"+ticket.OrderID+"/evidence", ticket.Token, qr.Bytes(), nil)
+	call("POST", "/api/orders/"+ticket.OrderID+"/submit", ticket.Token, admin.Submission{}, nil)
 	order, err = client.status(ticket)
 	if err != nil || order.Status != "pending" || order.LicenseCode != "" || lm.IsPro() {
 		t.Fatal("unconfirmed payment unlocked Pro", err)

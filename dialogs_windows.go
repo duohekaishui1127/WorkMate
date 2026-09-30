@@ -12,6 +12,7 @@ import (
 
 var settingsWnd HWND
 var settingsFont HFONT
+var dayEditFont HFONT
 var dayEditWnd HWND
 var dayEditDate time.Time
 var calendarWnd HWND
@@ -94,7 +95,7 @@ func settingsWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			{112, 24, 472, "使用中国大陆节假日与调休", s.UseMainlandHolidayCalendar},
 			{113, 478, 216, "登录 Windows 后自动静默启动", s.AutoStart}, {114, 478, 246, "手动启动先隐藏到托盘", s.StartHidden},
 			{120, 478, 276, "手动启动时显示挂件", s.ShowFloatingOnStartup}, {115, 478, 306, "自动启动时显示挂件", s.ShowFloatingOnAutoStart},
-			{116, 478, 336, "启用本地智能提醒（Pro）", s.ReminderEnabled}, {117, 478, 366, "挂件显示今日估算收入", s.FloatingShowEarned},
+			{116, 478, 336, "启用提醒（下班免费，提前通知 Pro）", s.ReminderEnabled}, {117, 478, 366, "挂件显示今日估算收入", s.FloatingShowEarned},
 			{118, 478, 396, "挂件显示倒计时", s.FloatingShowCountdown}, {119, 478, 426, "挂件显示进度", s.FloatingShowProgress},
 			{126, 478, 456, "挂件显示短句", s.FloatingShowPhrase}, {127, 478, 486, "挂件使用紧凑模式", s.FloatingCompact},
 			{128, 478, 546, "靠边自动隐藏，鼠标靠近展开", s.FloatingAutoHide},
@@ -312,7 +313,7 @@ func paintCalendar(hwnd HWND) {
 		}
 		app.calendarHits = append(app.calendarHits, hitRect{"day:" + dt.Format("2006-01-02"), r})
 	}
-	drawText(HDC(hdc), "绿色=休息 · 杏色=调休工作日 · 紫色=今天。单击日期可记录加班 / 年假 / 补休 / 请假。", RECT{260, 616, 790, 652}, 11, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	drawText(HDC(hdc), "绿色=休息 · 杏色=调休工作日 · 紫色=今天。单击补记加班（免费）；年假 / 补休 / 请假管理为 Pro。", RECT{260, 616, 790, 652}, 11, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 }
 func calButton(hdc HDC, id, label string, r RECT, p palette) {
 	roundBox(hdc, r, p.Surface, p.Border, 12)
@@ -363,19 +364,17 @@ func handleCalendarClick(x, y int) {
 				app.calendarMonth = time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, time.Local)
 				invalidate(calendarWnd)
 			case "import":
-				if requirePro("导入节假日配置") {
+				if requireFeature(featureHolidayConfig) {
 					importHolidayUI()
 				}
 			case "export":
-				if requirePro("导出节假日模板") {
+				if requireFeature(featureHolidayConfig) {
 					exportHolidayUI()
 				}
 			default:
 				if strings.HasPrefix(h.ID, "day:") {
 					d, _ := time.ParseInLocation("2006-01-02", strings.TrimPrefix(h.ID, "day:"), time.Local)
-					if requirePro("记录加班 / 年假 / 补休 / 请假") {
-						openDayEdit(d)
-					}
+					openDayEdit(d)
 				}
 			}
 			return
@@ -415,33 +414,49 @@ func openDayEdit(d time.Time) {
 		pDestroyWindow.Call(uintptr(dayEditWnd))
 	}
 	dayEditDate = d
-	style := uintptr(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU)
-	r, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16(dayEditClass))), uintptr(unsafe.Pointer(u16("记录 "+d.Format("2006-01-02")))), style, 610, 250, 470, 430, uintptr(calendarWnd), 0, uintptr(app.hInst), 0)
-	dayEditWnd = HWND(r)
+	dayEditWnd = createOwnedWindow(dayEditClass, "记录 "+d.Format("2006-01-02"), 470, 434, app.main)
 	show(dayEditWnd, SW_SHOW)
 }
 func dayEditWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_CREATE:
+		dayEditFont = newUIFont(14)
+		ctl := func(class, text string, style uintptr, x, y, w, h, id int) HWND {
+			child := createCtl(hwnd, class, text, style, x, y, w, h, id)
+			pSendMessage.Call(uintptr(child), WM_SETFONT, uintptr(dayEditFont), 1)
+			return child
+		}
 		info := app.store.DayInfo(dayEditDate)
-		createCtl(hwnd, "STATIC", "日期性质："+info.Name+fmt.Sprintf(" · 加班参考 %.1f×", info.OvertimeMultiplier), 0, 22, 18, 410, 28, 0)
-		ot, an, comp, leave, note := dayValues(dayEditDate)
+		ctl("STATIC", "日期性质："+info.Name, 0, 22, 18, 420, 26, 300)
+		entry := app.store.DayEntryAt(dayEditDate)
 		rows := []struct {
 			label string
 			id    int
-			val   string
-		}{{"加班（小时）", 301, fmt.Sprintf("%.2f", ot)}, {"年休假（天）", 302, fmt.Sprintf("%.2f", an)}, {"补休（小时）", 303, fmt.Sprintf("%.2f", comp)}, {"请假（天）", 304, fmt.Sprintf("%.2f", leave)}, {"备注", 305, note}}
-		y := 58
-		for _, r := range rows {
-			createCtl(hwnd, "STATIC", r.label, 0, 22, y, 120, 26, 0)
-			createCtl(hwnd, "EDIT", r.val, WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 150, y-2, 270, 28, r.id)
-			y += 48
+			value string
+		}{
+			{"加班（小时）", 301, ledgerNumber(entry.OvertimeHours)},
+			{"年假（天，Pro）", 302, ledgerNumber(entry.AnnualDays)},
+			{"补休（小时，Pro）", 303, ledgerNumber(entry.CompHours)},
+			{"请假（天，Pro）", 304, ledgerNumber(entry.LeaveDays)},
+			{"备注（可选）", 305, entry.Note},
 		}
-		createCtl(hwnd, "BUTTON", "保存", BS_PUSHBUTTON, 245, 330, 82, 36, 390)
-		createCtl(hwnd, "BUTTON", "取消", BS_PUSHBUTTON, 338, 330, 82, 36, 391)
+		for i, row := range rows {
+			y := 58 + i*44
+			ctl("STATIC", row.label, 0, 22, y, 128, 26, 0)
+			edit := ctl("EDIT", row.value, WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 158, y-2, 284, 28, row.id)
+			if row.id >= 302 && row.id <= 304 && !canUseFeature(app.license, featureLeave, time.Now()) {
+				pEnableWindow.Call(uintptr(edit), 0)
+			}
+		}
+		ctl("STATIC", "加班补记与备注免费；已有休假记录会保留。", 0, 22, 286, 420, 28, 306)
+		ctl("BUTTON", "了解休假管理 Pro", BS_PUSHBUTTON|WS_TABSTOP, 22, 326, 188, 34, 392)
+		ctl("BUTTON", "保存记录", BS_PUSHBUTTON|WS_TABSTOP, 232, 376, 100, 36, 390)
+		ctl("BUTTON", "取消", BS_PUSHBUTTON|WS_TABSTOP, 346, 376, 96, 36, 391)
 		return 0
 	case WM_COMMAND:
 		switch loword(wParam) {
+		case 392:
+			openPurchaseWindowFor(featureLeave)
 		case 390:
 			saveDayEdit(hwnd)
 		case 391:
@@ -452,55 +467,42 @@ func dayEditWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 		pDestroyWindow.Call(uintptr(hwnd))
 		return 0
 	case WM_DESTROY:
+		if dayEditFont != 0 {
+			pDeleteObject.Call(uintptr(dayEditFont))
+			dayEditFont = 0
+		}
 		dayEditWnd = 0
 		return 0
 	}
 	r, _, _ := pDefWindowProc.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
 	return r
 }
-func dayValues(d time.Time) (float64, float64, float64, float64, string) {
-	key := d.Format("2006-01-02")
-	app.store.mu.Lock()
-	defer app.store.mu.Unlock()
-	var ot, an, comp, leave float64
-	var note string
-	for _, r := range app.store.Records {
-		if r.Date == key {
-			ot = r.OvertimeMinutes / 60
-		}
-	}
-	for _, l := range app.store.Leaves {
-		if l.Date == key {
-			an = l.AnnualDays
-			comp = l.CompHours
-			leave = l.LeaveDays
-			note = l.Note
-		}
-	}
-	return ot, an, comp, leave, note
-}
 func saveDayEdit(hwnd HWND) {
-	ot := parseFloatText(getDlgItem(hwnd, 301))
-	an := parseFloatText(getDlgItem(hwnd, 302))
-	comp := parseFloatText(getDlgItem(hwnd, 303))
-	leave := parseFloatText(getDlgItem(hwnd, 304))
-	if ot < 0 || an < 0 || comp < 0 || leave < 0 {
-		msgBox(hwnd, "输入有误", "数值不能小于 0。", MB_OK|MB_ICONWARNING)
+	values := make([]float64, 4)
+	for i, id := range []int{301, 302, 303, 304} {
+		v, err := strconv.ParseFloat(strings.TrimSpace(getText(getDlgItem(hwnd, id))), 64)
+		if err != nil {
+			msgBox(hwnd, "输入有误", "加班与休假请输入有效数字，例如 1.5。", MB_OK|MB_ICONWARNING)
+			return
+		}
+		values[i] = v
+	}
+	entry := DayEntry{OvertimeHours: values[0], AnnualDays: values[1], CompHours: values[2], LeaveDays: values[3], Note: getText(getDlgItem(hwnd, 305))}
+	err := app.store.UpdateDayEntry(dayEditDate, entry, canUseFeature(app.license, featureLeave, time.Now()), time.Now())
+	if err == errLeaveRequiresPro {
+		openPurchaseWindowFor(featureLeave)
 		return
 	}
-	app.store.mu.Lock()
-	r := app.store.recordFor(dayEditDate)
-	r.OvertimeMinutes = ot * 60
-	l := app.store.leaveFor(dayEditDate)
-	l.AnnualDays = an
-	l.CompHours = comp
-	l.LeaveDays = leave
-	l.Note = strings.TrimSpace(getText(getDlgItem(hwnd, 305)))
-	_ = app.store.saveAllLocked()
-	app.store.mu.Unlock()
+	if err != nil {
+		msgBox(hwnd, "记录未保存", err.Error(), MB_OK|MB_ICONWARNING)
+		return
+	}
 	pDestroyWindow.Call(uintptr(hwnd))
 	if calendarWnd != 0 {
 		invalidate(calendarWnd)
+	}
+	if ledgerWnd != 0 {
+		refreshLedgerWindow(ledgerWnd)
 	}
 	invalidate(app.main)
 }

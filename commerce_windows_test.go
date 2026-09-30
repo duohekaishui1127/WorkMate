@@ -66,6 +66,13 @@ func TestWindowsPurchaseReceivesAuthorizationWithoutBlockingUI(t *testing.T) {
 	if purchaseWnd == 0 {
 		t.Fatal("cannot create purchase window")
 	}
+	show(purchaseWnd, SW_SHOWNOACTIVATE)
+	if getDlgItem(purchaseWnd, 520) == 0 || getDlgItem(purchaseWnd, 523) == 0 || getDlgItem(purchaseWnd, 514) == 0 {
+		t.Fatal("free and Pro feature comparison or backup activation entry missing")
+	}
+	if visible, _, _ := pIsWindowVisible.Call(uintptr(getDlgItem(purchaseWnd, 504))); visible != 0 {
+		t.Fatal("manual code entry was not hidden in the online flow")
+	}
 	var clientRect RECT
 	var origin POINT
 	pGetClientRect.Call(uintptr(purchaseWnd), uintptr(unsafe.Pointer(&clientRect)))
@@ -75,10 +82,23 @@ func TestWindowsPurchaseReceivesAuthorizationWithoutBlockingUI(t *testing.T) {
 		if control == 0 {
 			t.Fatalf("missing purchase control %d", id)
 		}
+		if visible, _, _ := pIsWindowVisible.Call(uintptr(control)); visible == 0 {
+			continue
+		}
 		var r RECT
 		pGetWindowRect.Call(uintptr(control), uintptr(unsafe.Pointer(&r)))
 		if r.Left < origin.X || r.Top < origin.Y || r.Right > origin.X+clientRect.Right || r.Bottom > origin.Y+clientRect.Bottom {
 			t.Fatalf("purchase control %d outside window", id)
+		}
+	}
+	setPurchaseAdvanced(purchaseWnd, true)
+	user32.NewProc("ClientToScreen").Call(uintptr(purchaseWnd), uintptr(unsafe.Pointer(&origin)))
+	pGetClientRect.Call(uintptr(purchaseWnd), uintptr(unsafe.Pointer(&clientRect)))
+	for _, id := range []int{502, 503, 504, 505, 513, 516, 517, 518} {
+		var r RECT
+		pGetWindowRect.Call(uintptr(getDlgItem(purchaseWnd, id)), uintptr(unsafe.Pointer(&r)))
+		if r.Top < origin.Y || r.Bottom > origin.Y+clientRect.Bottom {
+			t.Fatalf("expanded backup activation control %d outside window", id)
 		}
 	}
 	start := time.Now()

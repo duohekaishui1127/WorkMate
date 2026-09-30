@@ -112,7 +112,7 @@ func paintMain(hwnd HWND) {
 		status := app.license.StatusText(now)
 		drawText(HDC(hdc), status, RECT{480, 34, 650, 60}, 12, FW_SEMIBOLD, p.Accent, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 		if !app.license.IsPro() {
-			button(HDC(hdc), "buypro", "买断 PRO", RECT{652, 34, 748, 78}, p.Peach, p.Text, p.Border)
+			button(HDC(hdc), "buypro", "了解 Pro", RECT{652, 34, 748, 78}, p.Peach, p.Text, p.Border)
 		}
 	}
 	paintHero(HDC(hdc), now, p)
@@ -258,7 +258,11 @@ func paintSummaries(hdc HDC, now time.Time, p palette) {
 		drawText(hdc, c.title, RECT{c.r.Left + 20, c.r.Top + 13, c.r.Right - 15, c.r.Top + 42}, 13, FW_SEMIBOLD, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 		drawText(hdc, c.val, RECT{c.r.Left + 20, c.r.Top + 49, c.r.Right - 15, c.r.Top + 91}, 27, FW_BOLD, p.Text, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 		drawText(hdc, c.sub, RECT{c.r.Left + 20, c.r.Top + 93, c.r.Right - 15, c.r.Top + 121}, 12, FW_NORMAL, p.Sub, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
-		button(hdc, c.id, c.btn, RECT{c.r.Left + 20, c.r.Top + 128, c.r.Left + 155, c.r.Top + 164}, p.Surface, p.Text, p.Border)
+		label := c.btn
+		if (c.id == "monthshare" || c.id == "yearshare") && !canUseFeature(app.license, featurePeriodReports, now) {
+			label += " Pro"
+		}
+		button(hdc, c.id, label, RECT{c.r.Left + 20, c.r.Top + 128, c.r.Left + 155, c.r.Top + 164}, p.Surface, p.Text, p.Border)
 	}
 }
 
@@ -268,12 +272,7 @@ func paintActions(hdc HDC, p palette) {
 		id, label string
 		w         int
 		primary   bool
-	}{{"overtime", "开始加班", 118, true}, {"calendar", "劳动日历", 105, false}, {"timeline", "今日时间轴", 118, false}, {"floating", "桌面挂件", 105, false}, {"backup", "备份", 78, false}, {"restore", "恢复", 78, false}}
-	if app.license != nil && !app.license.HasProAccess(time.Now()) {
-		items[2].label = "时间轴 PRO"
-		items[4].label = "备份 PRO"
-		items[5].label = "恢复 PRO"
-	}
+	}{{"overtime", "开始加班", 112, true}, {"recordtoday", "补记今天", 104, false}, {"calendar", "劳动日历", 104, false}, {"timeline", "今日时间轴", 110, false}, {"ledger", "工时账本", 110, false}, {"floating", "桌面挂件", 100, false}, {"backup", "备份", 70, false}, {"restore", "恢复", 70, false}}
 	if app.store.OvertimeRunning() {
 		items[0].label = "结束加班"
 	}
@@ -293,9 +292,6 @@ func paintActions(hdc HDC, p palette) {
 }
 
 func checkReminders(now time.Time) {
-	if app.license != nil && !app.license.HasProAccess(now) {
-		return
-	}
 	if !app.store.Settings.ReminderEnabled {
 		return
 	}
@@ -314,6 +310,9 @@ func checkReminders(now time.Time) {
 		showBalloon(title, body, false)
 	}
 	for _, reminder := range app.store.DueReminders(now) {
+		if !canUseFeature(app.license, reminderFeature(reminder.Key), now) {
+			continue
+		}
 		mark(reminder.Key, reminder.Title, reminder.Body)
 	}
 }

@@ -72,11 +72,11 @@
               <table>
                 <thead>
                   <tr>
-                    <th>订单 / 联系方式</th>
+                    <th>订单 / 用户</th>
                     <th>应付金额</th>
                     <th>状态</th>
                     <th>付款信息</th>
-                    <th>创建时间</th>
+                    <th>提交 / 创建时间</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -192,62 +192,109 @@
         </main>
       </div>
     </div>
-    <dialog id="detail">
+    <dialog id="detail" aria-labelledby="detail-title">
       <div class="title-row">
-        <h2>核实付款订单</h2>
-        <button id="close-detail" class="secondary" type="button">关闭</button>
-      </div>
-      <dl id="order-detail"></dl>
-      <p id="proof-warning" class="warning" hidden></p>
-      <a id="proof-link" target="_blank" rel="noopener"
-        ><img id="proof" class="proof" alt="用户提交的付款凭证" hidden
-      /></a>
-      <form id="decision-form">
-        <label
-          >实际到账金额（元）<input
-            id="received"
-            type="number"
-            min="0.01"
-            step="0.01"
-            placeholder="核对账单后填写" /></label
-        ><label
-          >实际到账交易单号<input
-            id="receipt"
-            maxlength="160"
-            placeholder="从你的收款账单核对，不能重复使用" /></label
-        ><label
-          >处理备注 / 驳回原因<textarea
-            id="decision-note"
-            maxlength="1000"
-            rows="3"
-          ></textarea></label
-        ><label class="check"
-          ><input
-            id="confirmed"
-            type="checkbox"
-          />我已在收款账单确认实际到账，金额与此订单一致</label
-        >
-        <div class="actions">
-          <button id="approve" type="button">确认到账并开通 Pro</button
-          ><button id="reject" type="button" class="danger">
-            驳回，要求补充信息
+        <h2 id="detail-title">核实付款</h2>
+        <div class="actions compact-actions">
+          <button id="refresh-detail" class="secondary" type="button">
+            刷新
+          </button>
+          <button id="close-detail" class="secondary" type="button">
+            关闭
           </button>
         </div>
-        <p class="hint">
-          开通后签发绑定这台电脑的永久授权。当前版本不支持撤销已签发的永久授权。
-        </p>
-      </form>
-      <div id="license-box" hidden>
-        <label
-          >已签发的永久激活码<textarea
-            id="license-code"
-            readonly
-            rows="4"
-          ></textarea></label
-        ><button id="copy-license" class="secondary" type="button">
-          复制激活码
-        </button>
       </div>
+      <div class="review-layout">
+        <div class="review-proof">
+          <p class="hint">对照这张截图，在自己的收款记录中找到对应付款。</p>
+          <p id="proof-warning" class="warning" hidden></p>
+          <a id="proof-link" target="_blank" rel="noopener"
+            ><img id="proof" class="proof" alt="用户提交的付款凭证" hidden
+          /></a>
+          <p id="no-proof" class="hint" hidden>
+            用户没有上传截图，请按右侧交易单号核对收款。
+          </p>
+        </div>
+        <div class="review-controls">
+          <div class="review-summary">
+            <span class="hint">本单应到账</span>
+            <strong id="review-amount" class="price"></strong>
+            <dl id="payment-detail"></dl>
+          </div>
+          <form id="decision-form">
+            <fieldset id="decision-fields">
+              <label
+                >到账交易单号<input
+                  id="receipt"
+                  maxlength="160"
+                  minlength="3"
+                  placeholder="从你的收款记录复制到这里"
+                  required
+              /></label>
+              <p class="hint">核实到账后，只填这一项。金额已自动带入。</p>
+              <button id="approve" class="full-width" type="submit" disabled>
+                已到账，开通 Pro
+              </button>
+              <p class="hint submit-hint">
+                点击即确认这笔付款已到账，金额与本单一致。
+              </p>
+              <details id="amount-details">
+                <summary>核对金额</summary>
+                <label
+                  >实际到账金额（元）<input
+                    id="received"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                /></label>
+                <p class="hint">金额与订单不一致时，请让用户补充付款信息。</p>
+              </details>
+              <details id="reject-details">
+                <summary>需要用户补充信息</summary>
+                <label
+                  >原因<select id="reject-reason">
+                    <option value="missing">未找到对应收款</option>
+                    <option value="unclear">付款截图不清晰</option>
+                    <option value="amount">付款金额不一致</option>
+                    <option value="other">其他原因</option>
+                  </select></label
+                >
+                <label id="custom-reason" hidden
+                  >补充原因<textarea
+                    id="decision-note"
+                    maxlength="1000"
+                    rows="3"
+                    placeholder="告诉用户需要补充什么"
+                  ></textarea>
+                </label>
+                <button id="reject" type="button" class="danger">
+                  发送补充请求
+                </button>
+              </details>
+            </fieldset>
+          </form>
+          <div id="license-box" hidden>
+            <p>Pro 已开通，用户联网后自动领取授权。</p>
+            <details>
+              <summary>查看备用激活码</summary>
+              <label
+                >已签发的永久激活码<textarea
+                  id="license-code"
+                  readonly
+                  rows="4"
+                ></textarea>
+              </label>
+              <button id="copy-license" class="secondary" type="button">
+                复制激活码
+              </button>
+            </details>
+          </div>
+        </div>
+      </div>
+      <details id="technical-detail">
+        <summary>订单详情与用户备注</summary>
+        <dl id="order-detail"></dl>
+      </details>
     </dialog>
   </body>
 </html>

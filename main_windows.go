@@ -120,9 +120,6 @@ func main() {
 	if floating {
 		toggleFloating(true)
 	}
-	if app.license.ConsumeExpiryNotice(time.Now()) && !hidden {
-		openPurchaseWindow()
-	}
 
 	var msg MSG
 	for {
@@ -131,7 +128,7 @@ func main() {
 			break
 		}
 		handled := false
-		for _, dialog := range []HWND{settingsWnd, dayEditWnd, purchaseWnd} {
+		for _, dialog := range []HWND{settingsWnd, dayEditWnd, purchaseWnd, ledgerWnd} {
 			if dialog != 0 {
 				if ok, _, _ := pIsDialogMessage.Call(uintptr(dialog), uintptr(unsafe.Pointer(&msg))); ok != 0 {
 					handled = true
@@ -215,6 +212,7 @@ func registerWindowClasses() {
 	registerClass(settingsClass, syscall.NewCallback(settingsWndProc))
 	registerClass(dayEditClass, syscall.NewCallback(dayEditWndProc))
 	registerClass(purchaseClass, syscall.NewCallback(purchaseWndProc))
+	registerClass(ledgerClass, syscall.NewCallback(ledgerWndProc))
 }
 
 func createMainWindow() HWND {
@@ -246,9 +244,6 @@ func mainWndProc(hwnd HWND, msg uint32, wParam, lParam uintptr) uintptr {
 			syncOnlinePurchase(now, false)
 			app.store.Tick(now)
 			app.license.Tick(now)
-			if app.license.ConsumeExpiryNotice(now) {
-				openPurchaseWindow()
-			}
 			if purchaseWnd != 0 {
 				setText(getDlgItem(purchaseWnd, 507), "当前状态："+app.license.StatusText(now))
 			}
@@ -329,7 +324,7 @@ func showMain() {
 }
 func panicHide() {
 	hideFloating()
-	for _, hwnd := range []HWND{settingsWnd, calendarWnd, timelineWnd, dayEditWnd, purchaseWnd, app.main} {
+	for _, hwnd := range []HWND{settingsWnd, calendarWnd, timelineWnd, dayEditWnd, purchaseWnd, ledgerWnd, app.main} {
 		if hwnd != 0 {
 			show(hwnd, SW_HIDE)
 		}
@@ -367,31 +362,29 @@ func handleMainClick(x, y int) {
 			case "calendar":
 				openCalendarWindow()
 			case "timeline":
-				if requirePro("今日工作时间轴") {
-					openTimelineWindow()
-				}
+				openTimelineWindow()
+			case "ledger":
+				openLedgerWindow()
+			case "recordtoday":
+				openDayEdit(time.Now())
 			case "dailyshare":
-				if requirePro("今日分享卡") {
+				if requireFeature(featureDailyCard) {
 					saveShareCard("daily")
 				}
 			case "monthshare":
-				if requirePro("月度打工报告") {
+				if requireFeature(featurePeriodReports) {
 					saveShareCard("month")
 				}
 			case "yearshare":
-				if requirePro("年度打工报告") {
+				if requireFeature(featurePeriodReports) {
 					saveShareCard("year")
 				}
 			case "floating":
 				toggleFloating(false)
 			case "backup":
-				if requirePro("备份与恢复") {
-					backupFromUI()
-				}
+				backupFromUI()
 			case "restore":
-				if requirePro("备份与恢复") {
-					restoreFromUI()
-				}
+				restoreFromUI()
 			}
 			return
 		}
@@ -564,6 +557,13 @@ func restoreFromUI() {
 		msgBox(app.main, "恢复失败", err.Error(), MB_OK|MB_ICONERROR)
 	} else {
 		msgBox(app.main, "恢复完成", "数据已经恢复。", MB_OK|MB_ICONINFORMATION)
+		applyFloatingSettings()
+		if calendarWnd != 0 {
+			invalidate(calendarWnd)
+		}
+		if ledgerWnd != 0 {
+			refreshLedgerWindow(ledgerWnd)
+		}
 		invalidate(app.main)
 	}
 }

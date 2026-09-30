@@ -76,8 +76,7 @@ async function main() {
     let ready = false;
     for (let i = 0; i < 100; i++) {
       try {
-        const r = await fetch(base + "/healthz");
-        if (r.ok) {
+        if ((await fetch(base + "/healthz")).ok) {
           ready = true;
           break;
         }
@@ -93,13 +92,14 @@ async function main() {
         viewport: { width: 1360, height: 980 },
       }),
       buyer = await browser.newContext({
-        viewport: { width: 520, height: 900 },
+        viewport: { width: 390, height: 844 },
       }),
       page = await owner.newPage(),
-      purchase = await buyer.newPage();
-    const errors = [];
+      purchase = await buyer.newPage(),
+      errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     purchase.on("pageerror", (e) => errors.push(e.message));
+    await fs.mkdir("dist", { recursive: true });
     await page.goto(base + "/admin");
     await page.locator('[name="password"]').fill(password);
     await page.locator("#login-form button").click();
@@ -134,14 +134,48 @@ async function main() {
       assert.equal(r.status, 201);
       return r.json();
     }
+    async function openBuyer(ticket) {
+      await purchase.goto(base + ticket.purchase_path);
+      await purchase.locator("#order").waitFor({ state: "visible" });
+      assert.equal(new URL(purchase.url()).hash, "");
+      await purchase.locator(".plan-details summary").click();
+      assert.match(await purchase.locator(".plan-card").first().innerText(), /普通版.*免费/);
+      assert.match(await purchase.locator(".plan-card.pro").innerText(), /工时账本/);
+      assert.equal(await purchase.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "feature comparison overflows mobile viewport");
+      await purchase.locator(".plan-details summary").click();
+    }
+    async function pending() {
+      await purchase.locator("#pending").waitFor({ state: "visible" });
+    }
+    async function review() {
+      await page.locator("#refresh").click();
+      await page
+        .getByRole("button", { name: "核实并开通", exact: true })
+        .first()
+        .click();
+      await page.locator("#detail").waitFor({ state: "visible" });
+    }
     const ticket = await create("a".repeat(64));
-    await purchase.goto(base + ticket.purchase_path);
-    await purchase.locator("#order").waitFor({ state: "visible" });
-    assert.equal(new URL(purchase.url()).hash, "");
+    await openBuyer(ticket);
+    assert.equal(
+      await purchase.locator("#submit-form input:visible").count(),
+      1,
+      "only the screenshot picker should be visible by default",
+    );
+    assert.equal(
+      await purchase.locator("#customer-contact").getAttribute("required"),
+      null,
+    );
+    await purchase.locator("#submit-payment").click();
     await purchase
-      .locator("#customer-contact")
-      .fill("测试用户 · buyer@example.com");
-    await purchase.locator("#payment-reference").fill("USER-20260929-0001");
+      .locator("#notice")
+      .filter({ hasText: "请选择付款截图" })
+      .waitFor();
+    await purchase.locator("#notice").waitFor({ state: "hidden" });
+    await purchase.screenshot({
+      path: "dist/workmate-purchase-form-preview.png",
+      fullPage: true,
+    });
     await purchase
       .locator("#evidence")
       .setInputFiles({
@@ -149,51 +183,101 @@ async function main() {
         mimeType: "image/png",
         buffer: png(),
       });
-    await purchase.locator("#submit-form button").click();
+    await purchase.locator("#evidence-preview").waitFor({ state: "visible" });
+    // A failed submit must retain the already uploaded screenshot for one-click retry.
+    const submitURL = base + "/api/orders/" + ticket.order.id + "/submit";
+    await purchase.route(submitURL, (route) => route.abort());
+    await purchase.locator("#submit-payment").click();
     await purchase
-      .locator("#order-status")
-      .filter({ hasText: "待人工核实" })
+      .locator("#evidence-status")
+      .filter({ hasText: "付款截图已保存" })
       .waitFor();
+    await purchase.waitForFunction(
+      () => !document.querySelector("#submit-payment").disabled,
+    );
+    await purchase.unroute(submitURL);
+    await purchase.locator("#submit-payment").click();
+    await pending();
+    assert.equal(await purchase.locator("#submission").isVisible(), false);
+    assert.equal(await purchase.locator("#payment").isVisible(), false);
+    const submitted = await (
+      await fetch(base + "/api/orders/" + ticket.order.id, {
+        headers: { Authorization: "Bearer " + ticket.token },
+      })
+    ).json();
+    assert.equal(submitted.contact, "");
+    assert.equal(submitted.payment_method, "other");
+    assert.equal(submitted.status, "pending");
+    assert.equal(submitted.license_code, undefined);
+    await purchase.locator("#edit-submission").click();
+    await purchase.locator("#extra-information summary").click();
+    await purchase.locator("#customer-note").fill("付款时间补充草稿");
+    await purchase.locator("#refresh").click();
+    assert.equal(
+      await purchase.locator("#customer-note").inputValue(),
+      "付款时间补充草稿",
+      "polling must not erase form drafts",
+    );
+    await purchase.locator("#cancel-edit").click();
+    await pending();
     await page.locator('[data-tab="orders"]').click();
-    await page.getByRole("button", { name: "核实付款", exact: true }).click();
+    await review();
     await page.locator("#proof").waitFor({ state: "visible" });
-    await page.locator("#decision-note").fill("请补充付款时间");
+    assert.equal(await page.locator("#received").inputValue(), "19.90");
+    assert.equal(
+      await page.locator("#decision-form input:visible").count(),
+      1,
+      "receipt should be the only visible review input",
+    );
+    assert.equal(await page.locator("#approve").isDisabled(), true);
+    await page.locator("#reject-details summary").click();
+    await page.locator("#reject-reason").selectOption("unclear");
     await page.locator("#reject").click();
     await page.locator("#detail").waitFor({ state: "hidden" });
     await purchase.locator("#refresh").click();
     await purchase
       .locator("#review-note")
-      .filter({ hasText: "请补充付款时间" })
+      .filter({ hasText: "付款截图不清晰" })
       .waitFor();
-    await purchase.locator("#customer-note").fill("微信付款，已补充付款时间。");
-    await purchase.locator("#submit-form button").click();
-    await purchase
-      .locator("#order-status")
-      .filter({ hasText: "待人工核实" })
-      .waitFor();
-    await page.locator("#refresh").click();
-    await page.getByRole("button", { name: "核实付款", exact: true }).click();
-    await page.locator("#received").fill("19.80");
-    await page.locator("#receipt").fill("OWNER-ACTUAL-20260929-001");
-    await page.locator("#confirmed").check();
-    await page.locator("#approve").click();
-    await page.waitForFunction(() =>
-      document.querySelector("#notice").textContent.includes("实际到账"),
+    assert.equal(
+      await purchase.locator("#payment").isVisible(),
+      false,
+      "rejected buyers must not be prompted to pay again",
     );
+    await purchase
+      .locator("#customer-note")
+      .fill("已补充付款时间。保留原截图重新提交。");
+    await purchase.locator("#submit-payment").click();
+    await pending();
+    await review();
+    await page.locator("#receipt").fill("OWNER-ACTUAL-20260929-001");
+    await page.locator("#amount-details summary").click();
+    await page.locator("#received").fill("19.80");
+    await page.locator("#approve").click();
+    await page
+      .locator("#notice")
+      .filter({ hasText: "实际到账金额与订单不一致" })
+      .waitFor();
     assert.equal(await page.locator("#detail").evaluate((e) => e.open), true);
     await page.locator("#received").fill("19.90");
-    await page.locator("#approve").click();
+    await page.locator("#amount-details summary").click();
+    await page.locator("#notice").waitFor({ state: "hidden" });
+    await page.screenshot({
+      path: "dist/workmate-review-preview.png",
+      fullPage: true,
+    });
+    await page.locator("#receipt").press("Enter");
     await page.locator("#detail").waitFor({ state: "hidden" });
-    await purchase.locator("#refresh").click();
-    await purchase.locator("#approved").waitFor({ state: "visible" });
+    // Verify automatic status polling without clicking Refresh.
+    await purchase
+      .locator("#approved")
+      .waitFor({ state: "visible", timeout: 16000 });
     assert.ok(
       (await purchase.locator("#license-code").inputValue()).includes("."),
     );
     const second = await create("b".repeat(64));
-    await purchase.goto(base + second.purchase_path);
-    await purchase.locator("#order").waitFor({ state: "visible" });
-    await purchase.locator("#customer-contact").fill("另一位测试用户");
-    await purchase.locator("#payment-reference").fill("USER-SECOND");
+    await openBuyer(second);
+    await purchase.locator("#extra-information summary").click();
     await purchase
       .locator("#customer-note")
       .fill('<img src=x onerror="window.bad=true">');
@@ -204,48 +288,77 @@ async function main() {
         mimeType: "image/png",
         buffer: png(),
       });
-    await purchase.locator("#submit-form button").click();
-    await purchase
-      .locator("#order-status")
-      .filter({ hasText: "待人工核实" })
-      .waitFor();
-    await page.locator("#refresh").click();
-    await page.getByRole("button", { name: "核实付款", exact: true }).click();
+    await purchase.locator("#submit-payment").click();
+    await pending();
+    await review();
     await page
       .locator("#proof-warning")
       .filter({ hasText: "2 个订单" })
       .waitFor();
     assert.equal(await page.evaluate(() => window.bad), undefined);
-    await page.locator("#received").fill("19.90");
     await page.locator("#receipt").fill("OWNER-ACTUAL-20260929-001");
-    await page.locator("#confirmed").check();
     await page.locator("#approve").click();
-    await page.waitForFunction(() =>
-      document
-        .querySelector("#notice")
-        .textContent.includes("已经用于其他订单"),
+    await page
+      .locator("#notice")
+      .filter({ hasText: "已经用于其他订单" })
+      .waitFor();
+    await page.locator("#reject-details summary").click();
+    await page.locator("#reject-reason").selectOption("other");
+    await page.locator("#reject").click();
+    await page
+      .locator("#notice")
+      .filter({ hasText: "请填写需要用户补充" })
+      .waitFor();
+    await page
+      .locator("#decision-note")
+      .fill("请补充实际付款时间，无需重复付款。");
+    await page.locator("#reject").click();
+    await page.locator("#detail").waitFor({ state: "hidden" });
+    const third = await create("c".repeat(64));
+    await openBuyer(third);
+    await purchase.locator("#extra-information summary").click();
+    await purchase.locator("#payment-reference").fill("USER-REFERENCE-ONLY");
+    await purchase.locator("#submit-payment").click();
+    await pending();
+    await review();
+    await page.locator("#no-proof").waitFor({ state: "visible" });
+    assert.ok(
+      (await page.locator("#payment-detail").textContent()).includes(
+        "USER-REFERENCE-ONLY",
+      ),
     );
-    await page.locator("#close-detail").click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+      true,
+      "mobile review should not overflow",
+    );
+    await page.locator("#receipt").fill("OWNER-REFERENCE-ONLY");
+    await page.locator("#approve").click();
+    await page.locator("#detail").waitFor({ state: "hidden" });
+    await purchase.locator("#refresh").click();
+    await purchase.locator("#approved").waitFor({ state: "visible" });
+    await page.setViewportSize({ width: 1360, height: 980 });
     await page.locator("#status").selectOption("");
     await page.waitForFunction(() =>
-      document.querySelector("#total").textContent.includes("共 2 条"),
+      document.querySelector("#total").textContent.includes("共 3 条"),
     );
-    await fs.mkdir("dist", { recursive: true });
     await page.locator("#notice").waitFor({ state: "hidden" });
     await page.screenshot({
       path: "dist/workmate-admin-preview.png",
       fullPage: true,
     });
-    await purchase.goto(base + ticket.purchase_path);
-    await purchase.locator("#approved").waitFor({ state: "visible" });
-    await purchase.setViewportSize({ width: 390, height: 844 });
     await purchase.screenshot({
       path: "dist/workmate-purchase-preview.png",
       fullPage: true,
     });
     assert.deepEqual(errors, [], "browser JavaScript errors");
     console.log(
-      "PASS: browser login, QR/settings, proof submission, rejection/resubmission, payment amount validation, approval, duplicate receipt, evidence warning, safe text rendering and mobile page.",
+      "PASS: screenshot-only checkout, upload retry, optional fields, clear pending state, draft preservation, quick/custom rejection, prefilled amount, single-field review, keyboard approval, automatic status, duplicate receipt/evidence protection, transaction-only alternative, safe text rendering and mobile layout.",
     );
   } finally {
     if (browser) await browser.close();

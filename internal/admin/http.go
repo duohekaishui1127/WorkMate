@@ -12,8 +12,8 @@ import (
 	_ "image/png"
 	"io"
 	"mime"
-	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -24,22 +24,26 @@ import (
 //go:embed web/*
 var web embed.FS
 
-type HTTPOptions struct{ PublicURL string }
+type HTTPOptions struct {
+	PublicURL      string
+	TrustedProxies []netip.Prefix
+}
 type quota struct {
 	since time.Time
 	count int
 }
 type handler struct {
-	store  *Store
-	origin string
-	secure bool
-	mu     sync.Mutex
-	limits map[string]quota
-	images chan struct{}
+	store   *Store
+	origin  string
+	secure  bool
+	mu      sync.Mutex
+	limits  map[string]quota
+	images  chan struct{}
+	proxies []netip.Prefix
 }
 
 func NewHandler(store *Store, opts HTTPOptions) http.Handler {
-	h := &handler{store: store, origin: strings.TrimRight(opts.PublicURL, "/"), secure: strings.HasPrefix(opts.PublicURL, "https://"), limits: map[string]quota{}, images: make(chan struct{}, 2)}
+	h := &handler{store: store, origin: strings.TrimRight(opts.PublicURL, "/"), secure: strings.HasPrefix(opts.PublicURL, "https://"), limits: map[string]quota{}, images: make(chan struct{}, 2), proxies: append([]netip.Prefix(nil), opts.TrustedProxies...)}
 	m := http.NewServeMux()
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/admin", http.StatusFound) })
 	m.HandleFunc("GET /admin", h.page("admin.html"))
@@ -131,11 +135,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 func (h *handler) allowed(w http.ResponseWriter, r *http.Request, group string, limit int) bool {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
-	key := group + ":" + ip
+	key := group + ":" + h.clientIP(r)
 	now := time.Now()
 	h.mu.Lock()
 	defer h.mu.Unlock()

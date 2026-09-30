@@ -191,7 +191,7 @@ func drainOnlinePurchase() {
 func onlineOrderText(o onlineOrder) string {
 	switch o.Status {
 	case "created":
-		return "订单 " + o.ID + "：请在购买页提交付款信息。"
+		return "订单 " + o.ID + "：付款后在购买页上传截图即可。"
 	case "pending":
 		return "订单 " + o.ID + "：待开发者人工核实，请勿重复付款。"
 	case "rejected":
@@ -220,7 +220,7 @@ func refreshOnlinePurchaseWindow() {
 		setText(getDlgItem(purchaseWnd, 509), "联系开发者："+u.config.Contact)
 	}
 	if u.client.ticket != nil {
-		setText(getDlgItem(purchaseWnd, 501), "① 打开已有付款订单")
+		setText(getDlgItem(purchaseWnd, 501), "查看付款 / 开通进度")
 	}
 	enabled := uintptr(1)
 	if u.busy {

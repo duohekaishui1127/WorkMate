@@ -299,3 +299,73 @@ func TestSettingsPriceSnapshotImagesAndRestart(t *testing.T) {
 		t.Fatal("missing original key silently regenerated")
 	}
 }
+
+func TestScreenshotOnlySubmissionAndOptionalFields(t *testing.T) {
+	f := fixture(t)
+	f.ready(t)
+	o, token, err := f.store.CreateOrder(strings.Repeat("f", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, suffix string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		var payload []byte
+		if raw, ok := body.([]byte); ok {
+			payload = raw
+		} else {
+			payload, _ = json.Marshal(body)
+		}
+		r := httptest.NewRequest(method, "/api/orders/"+o.ID+suffix, bytes.NewReader(payload))
+		r.Header.Set("Authorization", "Bearer "+token)
+		if _, ok := body.([]byte); !ok {
+			r.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		f.handler.ServeHTTP(w, r)
+		return w
+	}
+	wantStatus(t, request("POST", "/submit", Submission{}), 400)
+	wantStatus(t, request("POST", "/evidence", testPNG(t)), 200)
+	w := request("POST", "/submit", Submission{})
+	wantStatus(t, w, 200)
+	var submitted Order
+	if err = json.Unmarshal(w.Body.Bytes(), &submitted); err != nil {
+		t.Fatal(err)
+	}
+	if submitted.Status != "pending" || submitted.Contact != "" || submitted.PaymentMethod != "other" || !submitted.HasEvidence || submitted.LicenseCode != "" {
+		t.Fatal("screenshot-only payment must await review without requiring personal information", submitted.Status)
+	}
+	for _, invalid := range []Submission{{Method: "invalid"}, {Contact: strings.Repeat("a", 241)}, {Reference: strings.Repeat("r", 161)}, {Note: strings.Repeat("n", 1001)}} {
+		wantStatus(t, request("POST", "/submit", invalid), 400)
+	}
+	unchanged, _ := f.store.Order(o.ID)
+	if unchanged.Revision != submitted.Revision {
+		t.Fatal("invalid optional input modified the pending order")
+	}
+	rejected, err := f.store.Decide(o.ID, "reject", Decision{Revision: submitted.Revision, Note: "请补充付款时间"})
+	if err != nil || rejected.Status != "rejected" {
+		t.Fatal(err)
+	}
+	wantStatus(t, request("POST", "/submit", Submission{Note: "已补充付款时间"}), 200)
+	submitted, _ = f.store.Order(o.ID)
+	approved, err := f.store.Decide(o.ID, "approve", Decision{Revision: submitted.Revision, Confirmed: true, ReceivedCents: 1990, Receipt: "OWNER-SCREENSHOT-ONLY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var license entitlement.License
+	if err = entitlement.Verify(approved.LicenseCode, f.store.PublicKey(), &license); err != nil || license.Customer != "" || license.DeviceID != o.DeviceID {
+		t.Fatal("anonymous screenshot payment must receive the original device-bound entitlement", err)
+	}
+	wantStatus(t, request("POST", "/submit", Submission{}), 400)
+	other, otherToken, err := f.store.CreateOrder(strings.Repeat("0", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.store.Submit(other.ID, otherToken, Submission{Reference: "  PAYMENT-REFERENCE-ONLY  "}); err != nil {
+		t.Fatal("transaction-only alternative required contact or payment selection", err)
+	}
+	got, _ := f.store.Order(other.ID)
+	if got.Status != "pending" || got.PaymentReference != "PAYMENT-REFERENCE-ONLY" || got.HasEvidence {
+		t.Fatal("transaction alternative was not retained")
+	}
+}

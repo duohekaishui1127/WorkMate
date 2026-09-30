@@ -88,16 +88,19 @@ func TestWindowsUISettingsAndReports(t *testing.T) {
 	proLicense := app.license
 	app.license = &LicenseManager{dataDir: s.DataDir, deviceID: strings.Repeat("a", 64), trialStart: time.Now().Add(-trialDuration), trialLastSeen: time.Now(), lastPersist: time.Now()}
 	mainWndProc(app.main, WM_TIMER, timerMain, 0)
-	if purchaseWnd == 0 {
-		t.Fatal("timer did not open purchase window at expiry")
+	if purchaseWnd != 0 {
+		t.Fatal("trial expiry interrupted the user with a purchase popup")
 	}
-	if visible, _, _ := pIsWindowVisible.Call(uintptr(purchaseWnd)); visible == 0 {
-		t.Fatal("expiry purchase window is not visible")
+	if requireFeature(featureLeave) || purchaseWnd == 0 {
+		t.Fatal("a paid feature did not show a contextual Pro explanation")
+	}
+	if !strings.Contains(getText(getDlgItem(purchaseWnd, 519)), "年假") {
+		t.Fatal("purchase window did not explain the requested feature")
 	}
 	pDestroyWindow.Call(uintptr(purchaseWnd))
 	mainWndProc(app.main, WM_TIMER, timerMain, 0)
 	if purchaseWnd != 0 {
-		t.Fatal("timer reopened dismissed purchase window")
+		t.Fatal("dismissed purchase window reopened without user action")
 	}
 	app.license = proLicense
 	// Create the purchase window without showing it or opening a payment image.

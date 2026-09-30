@@ -782,78 +782,165 @@ func (s *Store) BuildAutoTimeline(date time.Time) []TimelineEvent {
 func (s *Store) CreateBackup(dest string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.saveAllLocked()
-	f, err := os.Create(dest)
+	if err := s.saveAllLocked(); err != nil {
+		return fmt.Errorf("保存最新记录失败，未创建备份：%w", err)
+	}
+	f, err := os.CreateTemp(filepath.Dir(dest), ".workmate-backup-*.tmp")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(f.Name())
 	defer f.Close()
 	zw := zip.NewWriter(f)
-	defer zw.Close()
 	files := []string{s.SettingsPath, s.RecordsPath, s.LeavesPath, s.TimelinePath, s.CustomHolidayPath, s.StatePath}
-	for _, p := range files {
-		b, err := os.ReadFile(p)
+	for _, path := range files {
+		data, err := os.ReadFile(path)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
+			_ = zw.Close()
 			return err
 		}
-		w, err := zw.Create(filepath.Base(p))
+		writer, err := zw.Create(filepath.Base(path))
 		if err != nil {
+			_ = zw.Close()
 			return err
 		}
-		if _, err = w.Write(b); err != nil {
+		if _, err = writer.Write(data); err != nil {
+			_ = zw.Close()
 			return err
 		}
 	}
-	return nil
+	if err = zw.Close(); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), dest)
+}
+
+func writeBytesAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".workmate-restore-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 func (s *Store) RestoreBackup(src string) error {
-	// safety backup before restore
-	_ = os.MkdirAll(s.BackupDir, 0755)
-	safety := filepath.Join(s.BackupDir, "before-restore-"+time.Now().Format("20060102-150405")+".zip")
-	_ = s.CreateBackup(safety)
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
-	allowed := map[string]string{"settings.json": s.SettingsPath, "records.json": s.RecordsPath, "leave-records.json": s.LeavesPath, "timeline.json": s.TimelinePath, "holiday-calendar.json": s.CustomHolidayPath, "state.json": s.StatePath}
+	files := []struct{ name, path string }{
+		{"settings.json", s.SettingsPath}, {"records.json", s.RecordsPath}, {"leave-records.json", s.LeavesPath},
+		{"timeline.json", s.TimelinePath}, {"holiday-calendar.json", s.CustomHolidayPath}, {"state.json", s.StatePath},
+	}
+	allowed := map[string]bool{}
+	for _, file := range files {
+		allowed[file.name] = true
+	}
+	content := map[string][]byte{}
 	for _, zf := range r.File {
-		target, ok := allowed[filepath.Base(zf.Name)]
-		if !ok {
-			continue
+		if !allowed[zf.Name] || zf.FileInfo().IsDir() {
+			return fmt.Errorf("备份包含未知文件：%s", zf.Name)
+		}
+		if _, exists := content[zf.Name]; exists {
+			return fmt.Errorf("备份文件重复：%s", zf.Name)
 		}
 		rc, err := zf.Open()
 		if err != nil {
 			return err
 		}
-		data, err := io.ReadAll(io.LimitReader(rc, 16<<20))
-		rc.Close()
+		data, readErr := io.ReadAll(io.LimitReader(rc, (16<<20)+1))
+		closeErr := rc.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if len(data) > 16<<20 || !json.Valid(data) {
+			return fmt.Errorf("备份文件过大或 JSON 无效：%s", zf.Name)
+		}
+		var parsed any
+		if err = json.Unmarshal(data, &parsed); err != nil {
+			return err
+		}
+		switch zf.Name {
+		case "settings.json", "state.json":
+			if _, ok := parsed.(map[string]any); !ok {
+				return fmt.Errorf("备份内容类型错误：%s", zf.Name)
+			}
+		default:
+			if parsed != nil {
+				if _, ok := parsed.([]any); !ok {
+					return fmt.Errorf("备份内容类型错误：%s", zf.Name)
+				}
+			}
+		}
+		content[zf.Name] = data
+	}
+	if len(content) != len(files) {
+		return errors.New("备份不完整；请选择 WorkMate 生成的完整 ZIP 备份。")
+	}
+	if err = os.MkdirAll(s.BackupDir, 0755); err != nil {
+		return err
+	}
+	safety := filepath.Join(s.BackupDir, "before-restore-"+time.Now().Format("20060102-150405.000000000")+".zip")
+	if err = s.CreateBackup(safety); err != nil {
+		return fmt.Errorf("无法先备份当前数据，恢复已取消：%w", err)
+	}
+	previous := map[string][]byte{}
+	for _, file := range files {
+		old, err := os.ReadFile(file.path)
 		if err != nil {
-			return err
+			return fmt.Errorf("读取原数据失败，恢复已取消：%w", err)
 		}
-		if !json.Valid(data) {
-			return fmt.Errorf("%s 不是有效 JSON", zf.Name)
+		previous[file.name] = old
+	}
+	restoreOriginal := func() error {
+		var problems []error
+		for _, file := range files {
+			if err := writeBytesAtomic(file.path, previous[file.name]); err != nil {
+				problems = append(problems, fmt.Errorf("%s: %w", file.name, err))
+			}
 		}
-		if err = os.WriteFile(target, data, 0644); err != nil {
-			return err
+		return errors.Join(problems...)
+	}
+	for _, file := range files {
+		if err = writeBytesAtomic(file.path, content[file.name]); err != nil {
+			if revert := restoreOriginal(); revert != nil {
+				return fmt.Errorf("恢复失败：%v；原数据自动还原失败：%v。安全备份：%s", err, revert, safety)
+			}
+			return fmt.Errorf("恢复失败，原数据已还原：%w", err)
 		}
 	}
 	ns, err := newStore()
 	if err != nil {
-		return err
+		if revert := restoreOriginal(); revert != nil {
+			return fmt.Errorf("读取恢复数据失败：%v；原数据还原失败：%v。安全备份：%s", err, revert, safety)
+		}
+		return fmt.Errorf("读取恢复数据失败，原数据已还原：%w", err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Settings = ns.Settings
-	s.Records = ns.Records
-	s.Leaves = ns.Leaves
-	s.Timeline = ns.Timeline
-	s.HolidayYears = ns.HolidayYears
-	s.Runtime = ns.Runtime
+	s.Settings, s.Records, s.Leaves = ns.Settings, ns.Records, ns.Leaves
+	s.Timeline, s.HolidayYears, s.Runtime = ns.Timeline, ns.HolidayYears, ns.Runtime
 	s.overtimeStarted = ns.overtimeStarted
 	return nil
 }

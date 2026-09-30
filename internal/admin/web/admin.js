@@ -11,6 +11,7 @@ let csrf = "",
   offset = 0,
   selected = null,
   total = 0,
+  decisionBusy = false,
   noticeTimer;
 function notice(text, error = false) {
   $("notice").textContent = text;
@@ -82,7 +83,7 @@ async function loadOrders() {
     const tr = document.createElement("tr");
     const first = cell(tr, order.id);
     const contact = document.createElement("small");
-    contact.textContent = order.contact || "用户尚未提交联系方式";
+    contact.textContent = order.contact || "未留联系方式（可选）";
     first.append(contact);
     cell(tr, money(order.amount_cents));
     const status = cell(tr, "");
@@ -96,11 +97,14 @@ async function loadOrders() {
       (order.has_evidence ? "有付款截图" : "无截图") +
       (order.evidence_uses > 1 ? " · 凭证被多次使用" : "");
     proof.append(extra);
-    cell(tr, date(order.created_at));
+    cell(
+      tr,
+      date(order.status === "created" ? order.created_at : order.updated_at),
+    );
     const action = cell(tr, "");
     const button = document.createElement("button");
     button.className = "secondary";
-    button.textContent = order.status === "pending" ? "核实付款" : "查看";
+    button.textContent = order.status === "pending" ? "核实并开通" : "查看";
     button.addEventListener("click", () => showOrder(order));
     action.append(button);
     $("order-list").append(tr);
@@ -118,6 +122,21 @@ async function loadOrders() {
 }
 function showOrder(order) {
   selected = order;
+  $("review-amount").textContent = money(order.amount_cents);
+  $("payment-detail").replaceChildren();
+  for (const [name, value] of [
+    ["提交时间", date(order.updated_at)],
+    ["用户交易单号", order.payment_reference],
+    ["联系方式", order.contact],
+    ["用户说明", order.customer_note],
+  ]) {
+    if (!value) continue;
+    const dt = document.createElement("dt"),
+      dd = document.createElement("dd");
+    dt.textContent = name;
+    dd.textContent = value;
+    $("payment-detail").append(dt, dd);
+  }
   $("order-detail").replaceChildren();
   for (const [name, value] of [
     ["订单号", order.id],
@@ -143,6 +162,7 @@ function showOrder(order) {
     $("order-detail").append(dt, dd);
   }
   $("proof").hidden = !order.has_evidence;
+  $("no-proof").hidden = order.has_evidence;
   if (order.has_evidence) {
     const path =
       "/api/admin/orders/" +
@@ -160,25 +180,50 @@ function showOrder(order) {
     `这张付款凭证出现在 ${order.evidence_uses} 个订单中，请核实是否重复提交。`;
   $("decision-form").hidden = order.status !== "pending";
   $("decision-form").reset();
+  $("decision-fields").disabled = false;
+  $("received").value = (order.amount_cents / 100).toFixed(2);
+  $("custom-reason").hidden = true;
+  for (const name of ["amount-details", "reject-details", "technical-detail"])
+    $(name).open = false;
+  updateApproveButton();
   $("license-box").hidden = order.status !== "approved";
   $("license-code").value = order.license_code || "";
-  $("detail").showModal();
+  if (!$("detail").open) $("detail").showModal();
 }
+function updateApproveButton() {
+  $("approve").disabled = decisionBusy || $("receipt").value.trim().length < 3;
+}
+const rejectionReasons = {
+  missing: "未找到对应收款，请补充付款时间或付款交易单号，无需重复付款。",
+  unclear: "付款截图不清晰，请重新上传包含金额、时间和交易信息的完整截图。",
+  amount: "付款金额与订单不一致，请联系开发者核对处理，无需重复付款。",
+};
 async function decide(action) {
-  if (!selected) return;
+  if (!selected || decisionBusy) return;
   const d = {
     revision: selected.revision,
-    confirmed: $("confirmed").checked,
+    confirmed: action === "approve",
     received_cents: 0,
-    receipt_reference: $("receipt").value,
-    note: $("decision-note").value,
+    receipt_reference: $("receipt").value.trim(),
+    note: "",
   };
   if (action === "approve") {
+    if (!$("decision-form").reportValidity()) return;
     d.received_cents = cents($("received"));
-    if (!d.confirmed || !d.receipt_reference.trim())
-      throw Error("请先核实到账并填写实际交易单号");
-  } else if (!d.note.trim()) throw Error("请填写驳回原因");
-  $("approve").disabled = $("reject").disabled = true;
+    if (d.received_cents !== selected.amount_cents)
+      throw Error("实际到账金额与订单不一致，请核对或让用户补充信息。");
+    if (d.receipt_reference.length < 3)
+      throw Error("请从收款记录复制到账交易单号。");
+  } else {
+    d.note =
+      $("reject-reason").value === "other"
+        ? $("decision-note").value.trim()
+        : rejectionReasons[$("reject-reason").value];
+    if (!d.note) throw Error("请填写需要用户补充的内容。");
+  }
+  decisionBusy = true;
+  $("decision-fields").disabled = true;
+  $("close-detail").disabled = $("refresh-detail").disabled = true;
   try {
     await api(
       "/api/admin/orders/" + encodeURIComponent(selected.id) + "/" + action,
@@ -187,12 +232,15 @@ async function decide(action) {
     $("detail").close();
     notice(
       action === "approve"
-        ? "已开通 Pro，用户联网后会自动领取授权"
-        : "已驳回，用户可补充信息后重新提交",
+        ? "已开通 Pro，用户会自动领取授权"
+        : "已通知用户补充信息，无需再次付款",
     );
     await loadOrders();
   } finally {
-    $("approve").disabled = $("reject").disabled = false;
+    decisionBusy = false;
+    $("decision-fields").disabled = false;
+    $("close-detail").disabled = $("refresh-detail").disabled = false;
+    updateApproveButton();
   }
 }
 async function loadSettings() {
@@ -293,7 +341,23 @@ bindAsync("next", "click", async () => {
   await loadOrders();
 });
 bindAsync("close-detail", "click", async () => $("detail").close());
-bindAsync("approve", "click", () => decide("approve"));
+bindAsync("decision-form", "submit", () => decide("approve"));
+$("receipt").addEventListener("input", updateApproveButton);
+$("reject-reason").addEventListener("change", () => {
+  $("custom-reason").hidden = $("reject-reason").value !== "other";
+});
+$("detail").addEventListener("cancel", (event) => {
+  if (decisionBusy) event.preventDefault();
+});
+bindAsync("refresh-detail", "click", async () => {
+  if (!selected || decisionBusy) return;
+  const data = await api(
+    "/api/admin/orders?" + new URLSearchParams({ search: selected.id }),
+  );
+  const latest = data.orders.find((order) => order.id === selected.id);
+  if (!latest) throw Error("找不到此订单，请刷新订单列表。");
+  showOrder(latest);
+});
 bindAsync("reject", "click", () => decide("reject"));
 bindAsync("settings-form", "submit", async () => {
   if (!Number.isInteger(Number($("trial-hours").value)))

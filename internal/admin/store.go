@@ -132,6 +132,11 @@ CREATE INDEX IF NOT EXISTS orders_status ON orders(status,created_at);
 CREATE INDEX IF NOT EXISTS orders_device ON orders(device_id);
 CREATE INDEX IF NOT EXISTS orders_proof ON orders(evidence_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS receipts_once ON orders(receipt_reference) WHERE status='approved';
+CREATE TABLE IF NOT EXISTS payment_checkouts (
+ order_id TEXT PRIMARY KEY REFERENCES orders(id),
+ provider TEXT NOT NULL,
+ provider_order_id TEXT NOT NULL,
+ UNIQUE(provider,provider_order_id));
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, action TEXT NOT NULL, order_id TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '');`)
 	if err != nil {
 		db.Close()
@@ -305,8 +310,12 @@ func (s *Store) Submit(id, token string, v Submission) error {
 	v.Contact = strings.TrimSpace(v.Contact)
 	v.Reference = strings.TrimSpace(v.Reference)
 	v.Note = strings.TrimSpace(v.Note)
-	if v.Contact == "" || len(v.Contact) > 240 || len(v.Reference) > 160 || len(v.Note) > 1000 || (v.Method != "wechat" && v.Method != "alipay" && v.Method != "other") {
-		return errors.New("请填写联系方式并选择付款方式，文本内容过长时请缩短")
+	v.Method = strings.TrimSpace(v.Method)
+	if v.Method == "" {
+		v.Method = "other"
+	}
+	if len(v.Contact) > 240 || len(v.Reference) > 160 || len(v.Note) > 1000 || (v.Method != "wechat" && v.Method != "alipay" && v.Method != "other") {
+		return errors.New("付款方式无效或填写内容过长，请检查后重新提交")
 	}
 	tx, err := s.db.Begin()
 	if err != nil {

@@ -84,18 +84,18 @@ func (lm *LicenseManager) StatusText(now time.Time) string {
 		return "PRO · 永久版"
 	}
 	if lm.clockRollback {
-		return "FREE · 系统时间异常"
+		return "普通版 · 系统时间异常"
 	}
 	if lm.TrialActive(now) {
 		d := lm.TrialRemaining(now)
 		h := int(d.Hours())
 		m := int(d.Minutes()) % 60
-		return fmt.Sprintf("PRO 试用 · %dh%02dm", h, m)
+		return fmt.Sprintf("Pro 体验 · %dh%02dm", h, m)
 	}
-	return "FREE · 试用已结束"
+	return "普通版 · 可继续免费使用"
 }
 
-// Consume once per launch so dismissing the purchase window is respected.
+// Optional one-time expiry signal; the UI now shows the status inline without an automatic purchase popup.
 func (lm *LicenseManager) ConsumeExpiryNotice(now time.Time) bool {
 	if lm.HasProAccess(now) || lm.expiryNoticeShown {
 		return false

@@ -1,0 +1,7 @@
+# Replace pro.your-domain.com with your actual DNS name.
+pro.your-domain.com {
+    reverse_proxy 127.0.0.1:8090 {
+        # Always replace any client-supplied forwarding header.
+        header_up X-Forwarded-For {remote_host}
+    }
+}
